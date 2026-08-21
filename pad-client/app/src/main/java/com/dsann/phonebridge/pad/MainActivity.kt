@@ -9,9 +9,12 @@ import android.widget.TextView
 import java.io.BufferedReader
 import java.io.InputStreamReader
 import java.io.PrintWriter
+import java.net.InetSocketAddress
 import java.net.Socket
+import java.util.concurrent.Executors
 
 class MainActivity : Activity() {
+    private val io = Executors.newSingleThreadExecutor()
     private var socket: Socket? = null
     private var writer: PrintWriter? = null
     private lateinit var status: TextView
@@ -45,39 +48,80 @@ class MainActivity : Activity() {
         ping.setOnClickListener { send("PING") }
     }
 
+    private fun setStatus(value: String) {
+        runOnUiThread { status.text = value }
+    }
+
     private fun connectTo(host: String) {
         if (host.isEmpty()) {
-            status.text = "Enter the Phab IP address"
+            setStatus("Enter the Phab IP address")
             return
         }
-        status.text = "Connecting..."
-        Thread {
+
+        closeConnection()
+        setStatus("Connecting to $host:45821...")
+
+        io.execute {
             try {
-                val s = Socket(host, 45821)
-                socket = s
-                writer = PrintWriter(s.getOutputStream(), true)
+                val s = Socket()
+                s.connect(InetSocketAddress(host, 45821), 5000)
+                s.keepAlive = true
+                val w = PrintWriter(s.getOutputStream(), true)
                 val reader = BufferedReader(InputStreamReader(s.getInputStream()))
-                runOnUiThread { status.text = "Connected to $host" }
-                while (true) {
+
+                socket = s
+                writer = w
+                setStatus("Connected to $host")
+
+                while (!s.isClosed) {
                     val line = reader.readLine() ?: break
-                    runOnUiThread { status.text = line }
+                    setStatus(line)
                 }
+
+                if (socket === s) {
+                    socket = null
+                    writer = null
+                }
+                setStatus("Disconnected from $host")
             } catch (e: Exception) {
-                runOnUiThread { status.text = "Connection failed: ${e.message}" }
+                socket = null
+                writer = null
+                setStatus("Connection failed: ${e.javaClass.simpleName}: ${e.message ?: "no message"}")
             }
-        }.start()
+        }
     }
 
     private fun send(command: String) {
-        try {
-            writer?.println(command) ?: run { status.text = "Not connected" }
-        } catch (e: Exception) {
-            status.text = "Send failed: ${e.message}"
+        io.execute {
+            val s = socket
+            val w = writer
+            if (s == null || s.isClosed || w == null) {
+                setStatus("Not connected")
+                return@execute
+            }
+
+            try {
+                w.println(command)
+                if (w.checkError()) {
+                    setStatus("Send failed: socket write error")
+                } else {
+                    setStatus("Sent: $command")
+                }
+            } catch (e: Exception) {
+                setStatus("Send failed: ${e.javaClass.simpleName}: ${e.message ?: "no message"}")
+            }
         }
     }
 
-    override fun onDestroy() {
+    private fun closeConnection() {
         try { socket?.close() } catch (_: Exception) {}
+        socket = null
+        writer = null
+    }
+
+    override fun onDestroy() {
+        closeConnection()
+        io.shutdownNow()
         super.onDestroy()
     }
 }
