@@ -16,11 +16,8 @@
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
-            <!-- Required for default-phone/dialer eligibility on API 23. -->
-            <intent-filter>
-                <action android:name="android.intent.action.DIAL" />
-                <category android:name="android.intent.category.DEFAULT" />
-            </intent-filter>
+
+            <!-- API-23 default dialer eligibility. -->
             <intent-filter>
                 <action android:name="android.intent.action.DIAL" />
                 <category android:name="android.intent.category.DEFAULT" />
@@ -32,17 +29,13 @@
             android:name=".BridgeService"
             android:exported="false" />
 
-        <!-- API-23 Telecom in-call service. Telecom binds this only when the
-             app is selected as the device's default phone/dialer app. -->
+        <!-- API-23 InCallService. -->
         <service
             android:name=".PhoneInCallService"
             android:permission="android.permission.BIND_INCALL_SERVICE"
             android:exported="true">
             <meta-data
                 android:name="android.telecom.IN_CALL_SERVICE_UI"
-                android:value="true" />
-            <meta-data
-                android:name="android.telecom.IN_CALL_SERVICE_RINGING"
                 android:value="true" />
             <intent-filter>
                 <action android:name="android.telecom.InCallService" />
