@@ -17,9 +17,12 @@ class PhoneStateReceiver : BroadcastReceiver() {
             else -> state
         }
 
-        // Phase 1: state logging only. Phase 2 will publish this state
-        // to connected PadPhone clients.
-        context.getSharedPreferences("bridge", Context.MODE_PRIVATE)
-            .edit().putString("last_call_state", label).apply()
+        context.getSharedPreferences(BridgeService.PREFS, Context.MODE_PRIVATE)
+            .edit().putString("last_call_state", label).putString(BridgeService.KEY_STATUS, "Call state: $label").apply()
+
+        context.startService(Intent(context, BridgeService::class.java).apply {
+            action = BridgeService.ACTION_CALL_STATE
+            putExtra(BridgeService.EXTRA_CALL_STATE, label)
+        })
     }
 }
