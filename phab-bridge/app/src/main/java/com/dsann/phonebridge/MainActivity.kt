@@ -20,6 +20,7 @@ class MainActivity : Activity() {
     private lateinit var status: TextView
     private lateinit var number: EditText
     private lateinit var probeResult: TextView
+    private lateinit var loopbackStatus: TextView
     private val handler = Handler(Looper.getMainLooper())
     private val refresh = object : Runnable {
         override fun run() {
@@ -32,6 +33,7 @@ class MainActivity : Activity() {
             status.text = "PhoneBridge\n\nBridge: $bridge\nCall: $call\nTelecom: $telecom\nAudio route: $audio\nSupported: ${if (supported.isEmpty()) "—" else supported}"
             val report = prefs.getString("audio_probe", "") ?: ""
             if (report.isNotEmpty()) probeResult.text = report
+            loopbackStatus.text = "Loopback: ${AudioProbe.loopbackStatus(this@MainActivity)}"
             handler.postDelayed(this, 500)
         }
     }
@@ -71,6 +73,12 @@ class MainActivity : Activity() {
             textSize = 12f
             setPadding(8, 8, 8, 8)
         }
+        loopbackStatus = TextView(this).apply {
+            text = "Loopback: NOT_STARTED"
+            textSize = 14f
+            gravity = Gravity.CENTER
+            setPadding(8, 8, 8, 8)
+        }
 
         val dialPad = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; gravity = Gravity.CENTER }
         val keys = arrayOf("1","2","3","4","5","6","7","8","9","*","0","#")
@@ -90,6 +98,20 @@ class MainActivity : Activity() {
             setOnClickListener {
                 probeResult.text = "Running…\nDo this while a cellular call is active for the most useful result."
                 AudioProbe.run(this@MainActivity)
+            }
+        }
+        val startLoopback = Button(this).apply {
+            text = "Start communication loopback"
+            setOnClickListener {
+                if (!AudioProbe.startLoopback(this@MainActivity)) {
+                    loopbackStatus.text = "Loopback: ALREADY_RUNNING"
+                }
+            }
+        }
+        val stopLoopback = Button(this).apply {
+            text = "Stop communication loopback"
+            setOnClickListener {
+                if (!AudioProbe.stopLoopback()) loopbackStatus.text = "Loopback: NOT_RUNNING"
             }
         }
         val clearProbe = Button(this).apply {
@@ -115,6 +137,9 @@ class MainActivity : Activity() {
             addView(dialPad, LinearLayout.LayoutParams(-1, -2))
             addView(call, LinearLayout.LayoutParams(-1, -2))
             addView(probe, LinearLayout.LayoutParams(-1, -2))
+            addView(startLoopback, LinearLayout.LayoutParams(-1, -2))
+            addView(stopLoopback, LinearLayout.LayoutParams(-1, -2))
+            addView(loopbackStatus, LinearLayout.LayoutParams(-1, -2))
             addView(clearProbe, LinearLayout.LayoutParams(-1, -2))
             addView(probeResult, LinearLayout.LayoutParams(-1, -2))
             addView(defaultDialer, LinearLayout.LayoutParams(-1, -2))
