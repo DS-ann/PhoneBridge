@@ -7,6 +7,7 @@ import android.content.pm.PackageManager
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
+import android.telecom.TelecomManager
 import android.view.Gravity
 import android.widget.Button
 import android.widget.LinearLayout
@@ -22,7 +23,8 @@ class MainActivity : Activity() {
             val call = prefs.getString("last_call_state", "IDLE") ?: "IDLE"
             val audio = prefs.getString("audio_route", "Not available yet") ?: "Not available yet"
             val supported = prefs.getString("audio_supported", "") ?: ""
-            status.text = "PhoneBridge\n\n$bridge\n\nCall: $call\nAudio route: $audio\nSupported: $supported"
+            val telecom = prefs.getString("telecom_info", "InCallService not bound") ?: "InCallService not bound"
+            status.text = "PhoneBridge\n\n$bridge\n\nCall: $call\nTelecom: $telecom\nAudio route: $audio\nSupported: $supported"
             handler.postDelayed(this, 500)
         }
     }
@@ -32,9 +34,14 @@ class MainActivity : Activity() {
 
         status = TextView(this).apply {
             text = "PhoneBridge\nStarting..."
-            textSize = 18f
+            textSize = 16f
             gravity = Gravity.CENTER
             setPadding(24, 24, 24, 24)
+        }
+
+        val defaultDialer = Button(this).apply {
+            text = "Enable call controls"
+            setOnClickListener { requestDefaultDialer() }
         }
 
         val stop = Button(this).apply {
@@ -50,6 +57,7 @@ class MainActivity : Activity() {
             orientation = LinearLayout.VERTICAL
             gravity = Gravity.CENTER
             addView(status, LinearLayout.LayoutParams(-1, 0, 1f))
+            addView(defaultDialer, LinearLayout.LayoutParams(-1, -2))
             addView(stop, LinearLayout.LayoutParams(-1, -2))
         })
 
@@ -77,6 +85,17 @@ class MainActivity : Activity() {
             startBridgeService()
         } else {
             status.text = "PhoneBridge\nPhone permission required"
+        }
+    }
+
+    private fun requestDefaultDialer() {
+        if (android.os.Build.VERSION.SDK_INT >= 23) {
+            val telecom = getSystemService(TELECOM_SERVICE) as TelecomManager
+            if (packageName == telecom.defaultDialerPackage) return
+            val intent = Intent(TelecomManager.ACTION_CHANGE_DEFAULT_DIALER).apply {
+                putExtra(TelecomManager.EXTRA_CHANGE_DEFAULT_DIALER_PACKAGE_NAME, packageName)
+            }
+            startActivity(intent)
         }
     }
 
