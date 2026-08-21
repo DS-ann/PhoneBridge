@@ -16,8 +16,10 @@
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
-
-            <!-- API-23 default dialer eligibility. -->
+            <intent-filter>
+                <action android:name="android.intent.action.DIAL" />
+                <category android:name="android.intent.category.DEFAULT" />
+            </intent-filter>
             <intent-filter>
                 <action android:name="android.intent.action.DIAL" />
                 <category android:name="android.intent.category.DEFAULT" />
@@ -25,11 +27,15 @@
             </intent-filter>
         </activity>
 
+        <activity
+            android:name=".InCallActivity"
+            android:exported="false"
+            android:launchMode="singleTop" />
+
         <service
             android:name=".BridgeService"
             android:exported="false" />
 
-        <!-- API-23 InCallService. -->
         <service
             android:name=".PhoneInCallService"
             android:permission="android.permission.BIND_INCALL_SERVICE"
