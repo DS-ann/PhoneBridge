@@ -1,17 +1,17 @@
 package com.dsann.phonebridge.pad
 
+import android.app.Activity
 import android.os.Bundle
 import android.widget.Button
 import android.widget.EditText
 import android.widget.LinearLayout
 import android.widget.TextView
-import androidx.appcompat.app.AppCompatActivity
 import java.io.BufferedReader
 import java.io.InputStreamReader
 import java.io.PrintWriter
 import java.net.Socket
 
-class MainActivity : AppCompatActivity() {
+class MainActivity : Activity() {
     private var socket: Socket? = null
     private var writer: PrintWriter? = null
     private lateinit var status: TextView
