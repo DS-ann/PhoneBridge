@@ -2,6 +2,7 @@ package com.dsann.phonebridge.pad
 
 import android.app.Activity
 import android.os.Bundle
+import android.view.Gravity
 import android.widget.Button
 import android.widget.EditText
 import android.widget.LinearLayout
@@ -17,50 +18,43 @@ class MainActivity : Activity() {
     private val io = Executors.newCachedThreadPool()
     private var socket: Socket? = null
     private var writer: PrintWriter? = null
-    private lateinit var status: TextView
+    private lateinit var connectionStatus: TextView
+    private lateinit var callStatus: TextView
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-
         val root = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
+            gravity = Gravity.CENTER_HORIZONTAL
             setPadding(32, 32, 32, 32)
         }
 
-        val ip = EditText(this).apply {
-            hint = "Phab IP address"
-            setSingleLine(true)
-        }
+        val title = TextView(this).apply { text = "PhoneBridge"; textSize = 24f; gravity = Gravity.CENTER }
+        val ip = EditText(this).apply { hint = "Phab IP address"; setSingleLine(true) }
         val connect = Button(this).apply { text = "Connect" }
         val ping = Button(this).apply { text = "PING" }
-        status = TextView(this).apply {
-            text = "Disconnected"
-            textSize = 18f
-        }
+        connectionStatus = TextView(this).apply { text = "Connection: Disconnected"; textSize = 17f }
+        callStatus = TextView(this).apply { text = "Call status: UNKNOWN"; textSize = 20f; setPadding(0, 24, 0, 24) }
 
+        root.addView(title)
         root.addView(ip)
         root.addView(connect)
         root.addView(ping)
-        root.addView(status)
+        root.addView(connectionStatus)
+        root.addView(callStatus)
         setContentView(root)
 
         connect.setOnClickListener { connectTo(ip.text.toString().trim()) }
         ping.setOnClickListener { send("PING") }
     }
 
-    private fun setStatus(value: String) {
-        runOnUiThread { status.text = value }
-    }
+    private fun setConnectionStatus(value: String) = runOnUiThread { connectionStatus.text = "Connection: $value" }
+    private fun setCallStatus(value: String) = runOnUiThread { callStatus.text = "Call status: $value" }
 
     private fun connectTo(host: String) {
-        if (host.isEmpty()) {
-            setStatus("Enter the Phab IP address")
-            return
-        }
-
+        if (host.isEmpty()) { setConnectionStatus("Enter the Phab IP address"); return }
         closeConnection()
-        setStatus("Connecting to $host:45821...")
-
+        setConnectionStatus("Connecting to $host:45821...")
         io.execute {
             try {
                 val s = Socket()
@@ -68,63 +62,55 @@ class MainActivity : Activity() {
                 s.keepAlive = true
                 val w = PrintWriter(s.getOutputStream(), true)
                 val reader = BufferedReader(InputStreamReader(s.getInputStream()))
-
                 socket = s
                 writer = w
-                setStatus("Connected to $host")
+                setConnectionStatus("Connected to $host")
 
-                // Reading is deliberately on its own task so it never blocks send().
                 io.execute {
                     try {
                         while (!s.isClosed) {
                             val line = reader.readLine() ?: break
-                            setStatus(line)
+                            when {
+                                line.startsWith("CALL_STATE:") -> setCallStatus(line.substringAfter(':'))
+                                else -> setConnectionStatus(line)
+                            }
                         }
                     } catch (e: Exception) {
-                        if (!s.isClosed) {
-                            setStatus("Read failed: ${e.javaClass.simpleName}: ${e.message ?: "no message"}")
-                        }
+                        if (!s.isClosed) setConnectionStatus("Read failed: ${e.javaClass.simpleName}")
                     } finally {
                         if (socket === s) {
                             socket = null
                             writer = null
-                            setStatus("Disconnected from $host")
+                            setConnectionStatus("Disconnected from $host")
                         }
                     }
                 }
             } catch (e: Exception) {
                 socket = null
                 writer = null
-                setStatus("Connection failed: ${e.javaClass.simpleName}: ${e.message ?: "no message"}")
+                setConnectionStatus("Connection failed: ${e.javaClass.simpleName}: ${e.message ?: "no message"}")
             }
         }
     }
 
     private fun send(command: String) {
         io.execute {
-            val s = socket
             val w = writer
-            if (s == null || s.isClosed || w == null) {
-                setStatus("Not connected")
-                return@execute
-            }
-
+            val s = socket
+            if (s == null || s.isClosed || w == null) { setConnectionStatus("Not connected"); return@execute }
             try {
                 w.println(command)
                 w.flush()
-                if (w.checkError()) {
-                    setStatus("Send failed: socket write error")
-                } else {
-                    setStatus("Sent: $command")
-                }
+                if (w.checkError()) setConnectionStatus("Send failed: socket write error")
+                else setConnectionStatus("Sent: $command")
             } catch (e: Exception) {
-                setStatus("Send failed: ${e.javaClass.simpleName}: ${e.message ?: "no message"}")
+                setConnectionStatus("Send failed: ${e.javaClass.simpleName}: ${e.message ?: "no message"}")
             }
         }
     }
 
     private fun closeConnection() {
-        try { socket?.close() } catch (_: Exception) {}
+        try { socket?.close() } catch (_: Exception) { }
         socket = null
         writer = null
     }
