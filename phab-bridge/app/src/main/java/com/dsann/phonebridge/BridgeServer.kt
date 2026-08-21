@@ -71,11 +71,10 @@ class BridgeServer(private val context: Context, private val onStatus: (String) 
                     writer.flush()
                     val prefs = context.getSharedPreferences("bridge", Context.MODE_PRIVATE)
                     writer.write("CALL_STATE:${prefs.getString("last_call_state", "IDLE")}\n")
-                    writer.flush()
                     prefs.getString("telecom_info", null)?.let {
                         writer.write("$it\n")
-                        writer.flush()
                     }
+                    writer.flush()
                     while (!s.isClosed) {
                         val line = reader.readLine() ?: break
                         writer.write(process(line.trim()) + "\n")
