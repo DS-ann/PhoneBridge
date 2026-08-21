@@ -41,14 +41,15 @@ class BridgeServer(
 
     fun broadcastCallState(state: String) {
         val message = "CALL_STATE:$state\n"
-        onStatus("Call state: $state")
+        onStatus("Call status: $state")
         synchronized(clients) {
             val dead = mutableListOf<Socket>()
             clients.forEach { socket ->
                 try {
-                    val writer = socket.getOutputStream().bufferedWriter()
-                    writer.write(message)
-                    writer.flush()
+                    socket.getOutputStream().bufferedWriter().apply {
+                        write(message)
+                        flush()
+                    }
                 } catch (_: Exception) { dead.add(socket) }
             }
             dead.forEach { try { it.close() } catch (_: Exception) { }; clients.remove(it) }
@@ -66,11 +67,9 @@ class BridgeServer(
                     writer.flush()
 
                     val lastState = context.getSharedPreferences("bridge", Context.MODE_PRIVATE)
-                        .getString("last_call_state", null)
-                    if (!lastState.isNullOrEmpty()) {
-                        writer.write("CALL_STATE:$lastState\n")
-                        writer.flush()
-                    }
+                        .getString("last_call_state", "IDLE") ?: "IDLE"
+                    writer.write("CALL_STATE:$lastState\n")
+                    writer.flush()
 
                     while (!s.isClosed) {
                         val line = reader.readLine() ?: break
@@ -87,7 +86,8 @@ class BridgeServer(
         return try {
             when {
                 command.startsWith("${BridgeProtocol.DIAL}:") -> {
-                    dial(command.substringAfter(':').trim())
+                    val number = command.substringAfter(':').trim()
+                    dial(number)
                     "OK:DIAL"
                 }
                 command == BridgeProtocol.PING -> "PONG"
@@ -104,8 +104,13 @@ class BridgeServer(
     private fun dial(number: String) {
         require(number.isNotEmpty()) { "empty number" }
         val uri = Uri.parse("tel:" + Uri.encode(number))
-        val intent = Intent(Intent.ACTION_CALL, uri).apply { addFlags(Intent.FLAG_ACTIVITY_NEW_TASK) }
+        val intent = Intent(Intent.ACTION_CALL, uri).apply {
+            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        }
+        context.getSharedPreferences("bridge", Context.MODE_PRIVATE)
+            .edit().putString("last_call_state", "DIALING").apply()
+        onStatus("Call status: DIALING")
+        broadcastCallState("DIALING")
         context.startActivity(intent)
-        onStatus("Dialing $number")
     }
 }
