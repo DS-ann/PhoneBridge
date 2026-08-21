@@ -3,8 +3,6 @@ package com.dsann.phonebridge
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
-import android.os.Build
-import android.telecom.TelecomManager
 import java.io.BufferedReader
 import java.io.InputStreamReader
 import java.net.ServerSocket
@@ -42,12 +40,18 @@ class BridgeServer(private val context: Context, private val onStatus: (String) 
         onStatus("Call status: $state")
         context.getSharedPreferences("bridge", Context.MODE_PRIVATE)
             .edit().putString("last_call_state", state).apply()
+        broadcastLine("CALL_STATE:$state")
+    }
+
+    fun broadcastRaw(message: String) = broadcastLine(message)
+
+    private fun broadcastLine(message: String) {
         val dead = mutableListOf<Socket>()
         synchronized(clients) {
             clients.forEach { socket ->
                 try {
                     socket.getOutputStream().bufferedWriter().apply {
-                        write("CALL_STATE:$state\n")
+                        write(message + "\n")
                         flush()
                     }
                 } catch (_: Exception) { dead.add(socket) }
@@ -65,10 +69,13 @@ class BridgeServer(private val context: Context, private val onStatus: (String) 
                     val writer = s.getOutputStream().bufferedWriter()
                     writer.write("READY\n")
                     writer.flush()
-                    val lastState = context.getSharedPreferences("bridge", Context.MODE_PRIVATE)
-                        .getString("last_call_state", "IDLE") ?: "IDLE"
-                    writer.write("CALL_STATE:$lastState\n")
+                    val prefs = context.getSharedPreferences("bridge", Context.MODE_PRIVATE)
+                    writer.write("CALL_STATE:${prefs.getString("last_call_state", "IDLE")}\n")
                     writer.flush()
+                    prefs.getString("telecom_info", null)?.let {
+                        writer.write("$it\n")
+                        writer.flush()
+                    }
                     while (!s.isClosed) {
                         val line = reader.readLine() ?: break
                         writer.write(process(line.trim()) + "\n")
@@ -87,9 +94,9 @@ class BridgeServer(private val context: Context, private val onStatus: (String) 
                 "OK:DIAL"
             }
             command == BridgeProtocol.PING -> "PONG"
-            command == BridgeProtocol.ANSWER -> answer()
-            command == BridgeProtocol.REJECT -> reject()
-            command == BridgeProtocol.HANGUP -> hangup()
+            command == BridgeProtocol.ANSWER -> InCallController.answer()
+            command == BridgeProtocol.REJECT -> InCallController.reject()
+            command == BridgeProtocol.HANGUP -> InCallController.hangup()
             else -> "ERROR:UNKNOWN_COMMAND"
         }
     } catch (e: Exception) {
@@ -103,32 +110,5 @@ class BridgeServer(private val context: Context, private val onStatus: (String) 
             addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
         }
         context.startActivity(intent)
-    }
-
-    private fun answer(): String {
-        if (Build.VERSION.SDK_INT >= 26) {
-            val telecom = context.getSystemService(TelecomManager::class.java)
-            telecom?.acceptRingingCall()
-            return "OK:ANSWER"
-        }
-        return "UNSUPPORTED:ANSWER_ANDROID_6"
-    }
-
-    private fun reject(): String {
-        if (Build.VERSION.SDK_INT >= 28) {
-            val telecom = context.getSystemService(TelecomManager::class.java)
-            telecom?.endCall()
-            return "OK:REJECT"
-        }
-        return "UNSUPPORTED:REJECT_ANDROID_6"
-    }
-
-    private fun hangup(): String {
-        if (Build.VERSION.SDK_INT >= 28) {
-            val telecom = context.getSystemService(TelecomManager::class.java)
-            telecom?.endCall()
-            return "OK:HANGUP"
-        }
-        return "UNSUPPORTED:HANGUP_ANDROID_6"
     }
 }
