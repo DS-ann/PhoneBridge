@@ -14,7 +14,7 @@ import java.net.Socket
 import java.util.concurrent.Executors
 
 class MainActivity : Activity() {
-    private val io = Executors.newSingleThreadExecutor()
+    private val io = Executors.newCachedThreadPool()
     private var socket: Socket? = null
     private var writer: PrintWriter? = null
     private lateinit var status: TextView
@@ -73,16 +73,25 @@ class MainActivity : Activity() {
                 writer = w
                 setStatus("Connected to $host")
 
-                while (!s.isClosed) {
-                    val line = reader.readLine() ?: break
-                    setStatus(line)
+                // Reading is deliberately on its own task so it never blocks send().
+                io.execute {
+                    try {
+                        while (!s.isClosed) {
+                            val line = reader.readLine() ?: break
+                            setStatus(line)
+                        }
+                    } catch (e: Exception) {
+                        if (!s.isClosed) {
+                            setStatus("Read failed: ${e.javaClass.simpleName}: ${e.message ?: "no message"}")
+                        }
+                    } finally {
+                        if (socket === s) {
+                            socket = null
+                            writer = null
+                            setStatus("Disconnected from $host")
+                        }
+                    }
                 }
-
-                if (socket === s) {
-                    socket = null
-                    writer = null
-                }
-                setStatus("Disconnected from $host")
             } catch (e: Exception) {
                 socket = null
                 writer = null
@@ -102,6 +111,7 @@ class MainActivity : Activity() {
 
             try {
                 w.println(command)
+                w.flush()
                 if (w.checkError()) {
                     setStatus("Send failed: socket write error")
                 } else {
