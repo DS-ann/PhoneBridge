@@ -29,6 +29,9 @@ class PhoneInCallService : InCallService() {
         InCallController.setCall(call)
         InCallController.publishState(call.state)
         publishAudioState(callAudioState)
+        try {
+            startActivity(Intent(this, InCallActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+        } catch (_: Throwable) { }
     }
 
     override fun onCallRemoved(call: Call) {
@@ -59,8 +62,7 @@ class PhoneInCallService : InCallService() {
 
     private fun publishTelecomInfo(info: String) {
         getSharedPreferences(BridgeService.PREFS, MODE_PRIVATE).edit()
-            .putString("telecom_info", info)
-            .apply()
+            .putString("telecom_info", info).apply()
         try {
             startService(Intent(this, BridgeService::class.java).apply {
                 action = BridgeService.ACTION_TELECOM_INFO
@@ -83,13 +85,11 @@ class PhoneInCallService : InCallService() {
         getSharedPreferences(BridgeService.PREFS, MODE_PRIVATE).edit()
             .putString("audio_route", route)
             .putString("audio_supported", supported)
-            .putBoolean("audio_muted", state.isMuted)
-            .apply()
-        val info = "AUDIO_ROUTE:$route;SUPPORTED:$supported;MUTED:${state.isMuted}"
+            .putBoolean("audio_muted", state.isMuted).apply()
         try {
             startService(Intent(this, BridgeService::class.java).apply {
                 action = BridgeService.ACTION_TELECOM_INFO
-                putExtra(BridgeService.EXTRA_TELECOM_INFO, info)
+                putExtra(BridgeService.EXTRA_TELECOM_INFO, "AUDIO_ROUTE:$route;SUPPORTED:$supported;MUTED:${state.isMuted}")
             })
         } catch (_: Exception) { }
     }
