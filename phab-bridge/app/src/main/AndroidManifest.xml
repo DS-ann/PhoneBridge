@@ -8,10 +8,18 @@
         android:allowBackup="false"
         android:label="PhoneBridge"
         android:theme="@style/AppTheme">
-        <activity android:name=".MainActivity" android:exported="true">
+
+        <activity
+            android:name=".MainActivity"
+            android:exported="true">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+            <!-- Required for default-phone/dialer eligibility on API 23. -->
+            <intent-filter>
+                <action android:name="android.intent.action.DIAL" />
+                <category android:name="android.intent.category.DEFAULT" />
             </intent-filter>
             <intent-filter>
                 <action android:name="android.intent.action.DIAL" />
@@ -19,21 +27,31 @@
                 <data android:scheme="tel" />
             </intent-filter>
         </activity>
+
         <service
             android:name=".BridgeService"
             android:exported="false" />
+
+        <!-- API-23 Telecom in-call service. Telecom binds this only when the
+             app is selected as the device's default phone/dialer app. -->
         <service
             android:name=".PhoneInCallService"
             android:permission="android.permission.BIND_INCALL_SERVICE"
             android:exported="true">
-            <intent-filter>
-                <action android:name="android.telecom.InCallService" />
-            </intent-filter>
             <meta-data
                 android:name="android.telecom.IN_CALL_SERVICE_UI"
                 android:value="true" />
+            <meta-data
+                android:name="android.telecom.IN_CALL_SERVICE_RINGING"
+                android:value="true" />
+            <intent-filter>
+                <action android:name="android.telecom.InCallService" />
+            </intent-filter>
         </service>
-        <receiver android:name=".PhoneStateReceiver" android:exported="true">
+
+        <receiver
+            android:name=".PhoneStateReceiver"
+            android:exported="true">
             <intent-filter>
                 <action android:name="android.intent.action.PHONE_STATE" />
             </intent-filter>
