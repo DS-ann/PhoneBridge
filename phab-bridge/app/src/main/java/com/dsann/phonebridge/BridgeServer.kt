@@ -28,6 +28,7 @@ class BridgeServer(private val context: Context, private val onStatus: (String) 
     }
 
     fun stop() {
+        AudioBridge.stop(context)
         try { serverSocket?.close() } catch (_: Exception) { }
         synchronized(clients) {
             clients.forEach { try { it.close() } catch (_: Exception) { } }
@@ -71,13 +72,11 @@ class BridgeServer(private val context: Context, private val onStatus: (String) 
                     writer.flush()
                     val prefs = context.getSharedPreferences("bridge", Context.MODE_PRIVATE)
                     writer.write("CALL_STATE:${prefs.getString("last_call_state", "IDLE")}\n")
-                    prefs.getString("telecom_info", null)?.let {
-                        writer.write("$it\n")
-                    }
+                    prefs.getString("telecom_info", null)?.let { writer.write("$it\n") }
                     writer.flush()
                     while (!s.isClosed) {
                         val line = reader.readLine() ?: break
-                        writer.write(process(line.trim()) + "\n")
+                        writer.write(process(line.trim(), s) + "\n")
                         writer.flush()
                     }
                 } catch (_: Exception) {
@@ -86,12 +85,14 @@ class BridgeServer(private val context: Context, private val onStatus: (String) 
         }
     }
 
-    private fun process(command: String): String = try {
+    private fun process(command: String, socket: Socket): String = try {
         when {
             command.startsWith("${BridgeProtocol.DIAL}:") -> {
                 dial(command.substringAfter(':').trim())
                 "OK:DIAL"
             }
+            command.startsWith("AUDIO_START:") -> startAudio(command.substringAfter(':').trim(), socket)
+            command == "AUDIO_STOP" -> { AudioBridge.stop(context); "OK:AUDIO_STOP" }
             command == BridgeProtocol.PING -> "PONG"
             command == BridgeProtocol.ANSWER -> InCallController.answer()
             command == BridgeProtocol.REJECT -> InCallController.reject()
@@ -100,6 +101,14 @@ class BridgeServer(private val context: Context, private val onStatus: (String) 
         }
     } catch (e: Exception) {
         "ERROR:${e.javaClass.simpleName}:${e.message ?: "failed"}"
+    }
+
+    private fun startAudio(portText: String, socket: Socket): String {
+        val port = portText.toInt().also { require(it in 1024..65535) { "invalid audio port" } }
+        val address = socket.inetAddress ?: throw IllegalStateException("client address unavailable")
+        AudioBridge.stop(context)
+        if (!AudioBridge.start(context, address, port, 45822)) throw IllegalStateException("audio already running")
+        return "OK:AUDIO_START:$port"
     }
 
     private fun dial(number: String) {
