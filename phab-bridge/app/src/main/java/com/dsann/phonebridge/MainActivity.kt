@@ -5,6 +5,8 @@ import android.app.Activity
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
 import android.view.Gravity
 import android.widget.Button
 import android.widget.LinearLayout
@@ -12,6 +14,18 @@ import android.widget.TextView
 
 class MainActivity : Activity() {
     private lateinit var status: TextView
+    private val handler = Handler(Looper.getMainLooper())
+    private val refresh = object : Runnable {
+        override fun run() {
+            val prefs = getSharedPreferences(BridgeService.PREFS, MODE_PRIVATE)
+            val bridge = prefs.getString(BridgeService.KEY_STATUS, "Starting...") ?: "Starting..."
+            val call = prefs.getString("last_call_state", "IDLE") ?: "IDLE"
+            val audio = prefs.getString("audio_route", "Not available yet") ?: "Not available yet"
+            val supported = prefs.getString("audio_supported", "") ?: ""
+            status.text = "PhoneBridge\n\n$bridge\n\nCall: $call\nAudio route: $audio\nSupported: $supported"
+            handler.postDelayed(this, 500)
+        }
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -29,7 +43,6 @@ class MainActivity : Activity() {
                 stopService(Intent(this@MainActivity, BridgeService::class.java).apply {
                     action = BridgeService.ACTION_STOP
                 })
-                status.text = "PhoneBridge\nStopped"
             }
         }
 
@@ -50,9 +63,12 @@ class MainActivity : Activity() {
 
     override fun onResume() {
         super.onResume()
-        val saved = getSharedPreferences(BridgeService.PREFS, MODE_PRIVATE)
-            .getString(BridgeService.KEY_STATUS, null)
-        if (saved != null) status.text = "PhoneBridge\n$saved"
+        handler.post(refresh)
+    }
+
+    override fun onPause() {
+        handler.removeCallbacks(refresh)
+        super.onPause()
     }
 
     override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<out String>, results: IntArray) {
@@ -66,6 +82,5 @@ class MainActivity : Activity() {
 
     private fun startBridgeService() {
         startService(Intent(this, BridgeService::class.java))
-        status.text = "PhoneBridge\nStarting server on port ${BridgeProtocol.PORT}..."
     }
 }
