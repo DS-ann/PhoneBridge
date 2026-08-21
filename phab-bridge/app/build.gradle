@@ -16,6 +16,9 @@ android {
     }
 }
 
-kotlinOptions {
-    jvmTarget = '1.8'
+// Kotlin compiler options belong in the Kotlin plugin's configuration.
+// The previous top-level kotlinOptions{} block is not recognized by the
+// Android Gradle plugin/Kotlin plugin combination used by this project.
+kotlin {
+    jvmToolchain(8)
 }
