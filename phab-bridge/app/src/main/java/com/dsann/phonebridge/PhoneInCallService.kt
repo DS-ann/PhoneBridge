@@ -1,6 +1,8 @@
 package com.dsann.phonebridge
 
+import android.content.Context
 import android.content.Intent
+import android.media.AudioManager
 import android.telecom.Call
 import android.telecom.CallAudioState
 import android.telecom.InCallService
@@ -15,6 +17,7 @@ class PhoneInCallService : InCallService() {
         InCallController.service = this
         publishTelecomInfo("BOUND")
         publishAudioState(callAudioState)
+        publishAudioDiagnostics("onCreate")
     }
 
     override fun onCallAdded(call: Call) {
@@ -22,6 +25,7 @@ class PhoneInCallService : InCallService() {
         val callback = object : Call.Callback() {
             override fun onStateChanged(changedCall: Call, state: Int) {
                 InCallController.publishState(state)
+                publishAudioDiagnostics("callState:$state")
             }
         }
         callbacks[call] = callback
@@ -29,6 +33,7 @@ class PhoneInCallService : InCallService() {
         InCallController.setCall(call)
         InCallController.publishState(call.state)
         publishAudioState(callAudioState)
+        publishAudioDiagnostics("onCallAdded")
         try {
             startActivity(Intent(this, InCallActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
         } catch (_: Throwable) { }
@@ -42,6 +47,7 @@ class PhoneInCallService : InCallService() {
             InCallController.clearCall()
             InCallController.publishState(Call.STATE_DISCONNECTED)
         }
+        publishAudioDiagnostics("onCallRemoved")
         super.onCallRemoved(call)
     }
 
@@ -58,6 +64,7 @@ class PhoneInCallService : InCallService() {
     override fun onCallAudioStateChanged(audioState: CallAudioState) {
         super.onCallAudioStateChanged(audioState)
         publishAudioState(audioState)
+        publishAudioDiagnostics("onCallAudioStateChanged")
     }
 
     private fun publishTelecomInfo(info: String) {
@@ -92,6 +99,35 @@ class PhoneInCallService : InCallService() {
                 putExtra(BridgeService.EXTRA_TELECOM_INFO, "AUDIO_ROUTE:$route;SUPPORTED:$supported;MUTED:${state.isMuted}")
             })
         } catch (_: Exception) { }
+    }
+
+    /**
+     * API-23 diagnostic: records the Android AudioManager state at Telecom events.
+     * This is state-only; it does not capture or transmit call audio.
+     */
+    private fun publishAudioDiagnostics(event: String) {
+        try {
+            val am = getSystemService(Context.AUDIO_SERVICE) as AudioManager
+            val modeName = when (am.mode) {
+                AudioManager.MODE_NORMAL -> "NORMAL"
+                AudioManager.MODE_RINGTONE -> "RINGTONE"
+                AudioManager.MODE_IN_CALL -> "IN_CALL"
+                AudioManager.MODE_IN_COMMUNICATION -> "IN_COMMUNICATION"
+                else -> "MODE_${am.mode}"
+            }
+            val report = "event=$event;mode=$modeName(${am.mode});speaker=${am.isSpeakerphoneOn};micMute=${am.isMicrophoneMute};wired=${am.isWiredHeadsetOn};musicActive=${am.isMusicActive}"
+            getSharedPreferences(BridgeService.PREFS, MODE_PRIVATE).edit()
+                .putString("audio_call_diagnostics", report)
+                .apply()
+            startService(Intent(this, BridgeService::class.java).apply {
+                action = BridgeService.ACTION_TELECOM_INFO
+                putExtra(BridgeService.EXTRA_TELECOM_INFO, "AUDIO_DIAG:$report")
+            })
+        } catch (e: Throwable) {
+            getSharedPreferences(BridgeService.PREFS, MODE_PRIVATE).edit()
+                .putString("audio_call_diagnostics", "ERROR:${e.javaClass.simpleName}")
+                .apply()
+        }
     }
 
     private fun supportedRoutes(mask: Int): String {
