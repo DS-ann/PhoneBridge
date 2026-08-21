@@ -21,6 +21,7 @@ class MainActivity : Activity() {
     private lateinit var number: EditText
     private lateinit var probeResult: TextView
     private lateinit var loopbackStatus: TextView
+    private lateinit var callAudioDiagnostics: TextView
     private val handler = Handler(Looper.getMainLooper())
     private val refresh = object : Runnable {
         override fun run() {
@@ -34,6 +35,7 @@ class MainActivity : Activity() {
             val report = prefs.getString("audio_probe", "") ?: ""
             if (report.isNotEmpty()) probeResult.text = report
             loopbackStatus.text = "Loopback: ${AudioProbe.loopbackStatus(this@MainActivity)}"
+            callAudioDiagnostics.text = "Call audio diagnostics:\n${prefs.getString("audio_call_diagnostics", "Waiting for an active Telecom call…") ?: "Waiting for an active Telecom call…"}"
             handler.postDelayed(this, 500)
         }
     }
@@ -77,6 +79,11 @@ class MainActivity : Activity() {
             text = "Loopback: NOT_STARTED"
             textSize = 14f
             gravity = Gravity.CENTER
+            setPadding(8, 8, 8, 8)
+        }
+        callAudioDiagnostics = TextView(this).apply {
+            text = "Call audio diagnostics:\nWaiting for an active Telecom call…"
+            textSize = 12f
             setPadding(8, 8, 8, 8)
         }
 
@@ -136,6 +143,7 @@ class MainActivity : Activity() {
             addView(number, LinearLayout.LayoutParams(-1, -2))
             addView(dialPad, LinearLayout.LayoutParams(-1, -2))
             addView(call, LinearLayout.LayoutParams(-1, -2))
+            addView(callAudioDiagnostics, LinearLayout.LayoutParams(-1, -2))
             addView(probe, LinearLayout.LayoutParams(-1, -2))
             addView(startLoopback, LinearLayout.LayoutParams(-1, -2))
             addView(stopLoopback, LinearLayout.LayoutParams(-1, -2))
