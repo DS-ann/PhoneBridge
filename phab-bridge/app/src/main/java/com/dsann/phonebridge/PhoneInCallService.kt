@@ -8,11 +8,7 @@ import android.telecom.VideoProfile
 
 /** API-23 Telecom control/diagnostic service. Does not capture raw call PCM. */
 class PhoneInCallService : InCallService() {
-    private val callback = object : Call.Callback() {
-        override fun onStateChanged(call: Call, state: Int) {
-            InCallController.publishState(state)
-        }
-    }
+    private val callbacks = mutableMapOf<Call, Call.Callback>()
 
     override fun onCreate() {
         super.onCreate()
@@ -23,14 +19,22 @@ class PhoneInCallService : InCallService() {
 
     override fun onCallAdded(call: Call) {
         super.onCallAdded(call)
-        InCallController.setCall(call)
+        val callback = object : Call.Callback() {
+            override fun onStateChanged(changedCall: Call, state: Int) {
+                InCallController.publishState(state)
+            }
+        }
+        callbacks[call] = callback
         call.registerCallback(callback)
+        InCallController.setCall(call)
         InCallController.publishState(call.state)
         publishAudioState(callAudioState)
     }
 
     override fun onCallRemoved(call: Call) {
-        call.unregisterCallback(callback)
+        callbacks.remove(call)?.let { callback ->
+            try { call.unregisterCallback(callback) } catch (_: Throwable) { }
+        }
         if (InCallController.getCall() === call) {
             InCallController.clearCall()
             InCallController.publishState(Call.STATE_DISCONNECTED)
@@ -39,6 +43,10 @@ class PhoneInCallService : InCallService() {
     }
 
     override fun onDestroy() {
+        callbacks.forEach { (call, callback) ->
+            try { call.unregisterCallback(callback) } catch (_: Throwable) { }
+        }
+        callbacks.clear()
         InCallController.clearService(this)
         publishTelecomInfo("UNBOUND")
         super.onDestroy()
@@ -53,10 +61,12 @@ class PhoneInCallService : InCallService() {
         getSharedPreferences(BridgeService.PREFS, MODE_PRIVATE).edit()
             .putString("telecom_info", info)
             .apply()
-        startService(Intent(this, BridgeService::class.java).apply {
-            action = BridgeService.ACTION_TELECOM_INFO
-            putExtra(BridgeService.EXTRA_TELECOM_INFO, "TELECOM:$info")
-        })
+        try {
+            startService(Intent(this, BridgeService::class.java).apply {
+                action = BridgeService.ACTION_TELECOM_INFO
+                putExtra(BridgeService.EXTRA_TELECOM_INFO, "TELECOM:$info")
+            })
+        } catch (_: Exception) { }
     }
 
     private fun publishAudioState(state: CallAudioState?) {
@@ -76,10 +86,12 @@ class PhoneInCallService : InCallService() {
             .putBoolean("audio_muted", state.isMuted)
             .apply()
         val info = "AUDIO_ROUTE:$route;SUPPORTED:$supported;MUTED:${state.isMuted}"
-        startService(Intent(this, BridgeService::class.java).apply {
-            action = BridgeService.ACTION_TELECOM_INFO
-            putExtra(BridgeService.EXTRA_TELECOM_INFO, info)
-        })
+        try {
+            startService(Intent(this, BridgeService::class.java).apply {
+                action = BridgeService.ACTION_TELECOM_INFO
+                putExtra(BridgeService.EXTRA_TELECOM_INFO, info)
+            })
+        } catch (_: Exception) { }
     }
 
     private fun supportedRoutes(mask: Int): String {
@@ -96,11 +108,7 @@ object InCallController {
     @Volatile var service: PhoneInCallService? = null
     @Volatile private var currentCall: Call? = null
 
-    @Synchronized fun setCall(call: Call) {
-        currentCall?.let { old -> try { old.unregisterCallback(null) } catch (_: Throwable) {} }
-        currentCall = call
-    }
-
+    @Synchronized fun setCall(call: Call) { currentCall = call }
     @Synchronized fun clearCall() { currentCall = null }
     fun getCall(): Call? = currentCall
 
@@ -137,9 +145,11 @@ object InCallController {
             else -> "STATE_$state"
         }
         val svc = service ?: return
-        svc.startService(Intent(svc, BridgeService::class.java).apply {
-            action = BridgeService.ACTION_CALL_STATE
-            putExtra(BridgeService.EXTRA_CALL_STATE, label)
-        })
+        try {
+            svc.startService(Intent(svc, BridgeService::class.java).apply {
+                action = BridgeService.ACTION_CALL_STATE
+                putExtra(BridgeService.EXTRA_CALL_STATE, label)
+            })
+        } catch (_: Exception) { }
     }
 }
