@@ -5,7 +5,6 @@ import android.app.Activity
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.Bundle
-import android.telecom.TelecomManager
 import android.view.Gravity
 import android.widget.Button
 import android.widget.LinearLayout
@@ -13,7 +12,6 @@ import android.widget.TextView
 
 class MainActivity : Activity() {
     private lateinit var status: TextView
-    private var server: BridgeServer? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -28,7 +26,9 @@ class MainActivity : Activity() {
         val stop = Button(this).apply {
             text = "Stop bridge"
             setOnClickListener {
-                server?.stop()
+                stopService(Intent(this@MainActivity, BridgeService::class.java).apply {
+                    action = BridgeService.ACTION_STOP
+                })
                 status.text = "PhoneBridge\nStopped"
             }
         }
@@ -44,22 +44,28 @@ class MainActivity : Activity() {
             checkSelfPermission(Manifest.permission.CALL_PHONE) != PackageManager.PERMISSION_GRANTED) {
             requestPermissions(arrayOf(Manifest.permission.CALL_PHONE, Manifest.permission.READ_PHONE_STATE), 100)
         } else {
-            startBridge()
+            startBridgeService()
         }
+    }
+
+    override fun onResume() {
+        super.onResume()
+        val saved = getSharedPreferences(BridgeService.PREFS, MODE_PRIVATE)
+            .getString(BridgeService.KEY_STATUS, null)
+        if (saved != null) status.text = "PhoneBridge\n$saved"
     }
 
     override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<out String>, results: IntArray) {
         super.onRequestPermissionsResult(requestCode, permissions, results)
         if (requestCode == 100 && results.isNotEmpty() && results[0] == PackageManager.PERMISSION_GRANTED) {
-            startBridge()
+            startBridgeService()
         } else {
             status.text = "PhoneBridge\nPhone permission required"
         }
     }
 
-    private fun startBridge() {
-        server = BridgeServer(this) { message ->
-            runOnUiThread { status.text = "PhoneBridge\n$message" }
-        }.also { it.start() }
+    private fun startBridgeService() {
+        startService(Intent(this, BridgeService::class.java))
+        status.text = "PhoneBridge\nStarting server on port ${BridgeProtocol.PORT}..."
     }
 }
