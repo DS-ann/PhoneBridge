@@ -13,11 +13,13 @@ import android.view.Gravity
 import android.widget.Button
 import android.widget.EditText
 import android.widget.LinearLayout
+import android.widget.ScrollView
 import android.widget.TextView
 
 class MainActivity : Activity() {
     private lateinit var status: TextView
     private lateinit var number: EditText
+    private lateinit var probeResult: TextView
     private val handler = Handler(Looper.getMainLooper())
     private val refresh = object : Runnable {
         override fun run() {
@@ -28,6 +30,8 @@ class MainActivity : Activity() {
             val supported = prefs.getString("audio_supported", "") ?: ""
             val telecom = prefs.getString("telecom_info", "InCallService not bound") ?: "InCallService not bound"
             status.text = "PhoneBridge\n\nBridge: $bridge\nCall: $call\nTelecom: $telecom\nAudio route: $audio\nSupported: ${if (supported.isEmpty()) "—" else supported}"
+            val report = prefs.getString("audio_probe", "") ?: ""
+            if (report.isNotEmpty()) probeResult.text = report
             handler.postDelayed(this, 500)
         }
     }
@@ -45,15 +49,8 @@ class MainActivity : Activity() {
         handleDialIntent(intent)
     }
 
-    override fun onResume() {
-        super.onResume()
-        handler.post(refresh)
-    }
-
-    override fun onPause() {
-        handler.removeCallbacks(refresh)
-        super.onPause()
-    }
+    override fun onResume() { super.onResume(); handler.post(refresh) }
+    override fun onPause() { handler.removeCallbacks(refresh); super.onPause() }
 
     private fun buildUi() {
         status = TextView(this).apply {
@@ -69,6 +66,11 @@ class MainActivity : Activity() {
             setSingleLine(true)
             gravity = Gravity.CENTER
         }
+        probeResult = TextView(this).apply {
+            text = "No audio probe has been run."
+            textSize = 12f
+            setPadding(8, 8, 8, 8)
+        }
 
         val dialPad = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; gravity = Gravity.CENTER }
         val keys = arrayOf("1","2","3","4","5","6","7","8","9","*","0","#")
@@ -76,16 +78,27 @@ class MainActivity : Activity() {
             val line = LinearLayout(this).apply { gravity = Gravity.CENTER }
             for (col in 0 until 3) {
                 val digit = keys[row * 3 + col]
-                val b = Button(this).apply {
-                    text = digit
-                    setOnClickListener { number.append(digit) }
-                }
+                val b = Button(this).apply { text = digit; setOnClickListener { number.append(digit) } }
                 line.addView(b, LinearLayout.LayoutParams(0, -2, 1f))
             }
             dialPad.addView(line, LinearLayout.LayoutParams(-1, -2))
         }
 
         val call = Button(this).apply { text = "CALL"; textSize = 18f }
+        val probe = Button(this).apply {
+            text = "Run audio probe"
+            setOnClickListener {
+                probeResult.text = "Running…\nDo this while a cellular call is active for the most useful result."
+                AudioProbe.run(this@MainActivity)
+            }
+        }
+        val clearProbe = Button(this).apply {
+            text = "Clear probe result"
+            setOnClickListener {
+                getSharedPreferences(BridgeService.PREFS, MODE_PRIVATE).edit().remove("audio_probe").apply()
+                probeResult.text = "No audio probe has been run."
+            }
+        }
         val defaultDialer = Button(this).apply { text = "Enable call controls"; setOnClickListener { requestDefaultDialer() } }
         val start = Button(this).apply { text = "Start bridge"; setOnClickListener { startBridgeService() } }
         val stop = Button(this).apply {
@@ -93,18 +106,22 @@ class MainActivity : Activity() {
             setOnClickListener { stopService(Intent(this@MainActivity, BridgeService::class.java).apply { action = BridgeService.ACTION_STOP }) }
         }
 
-        setContentView(LinearLayout(this).apply {
+        val content = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             gravity = Gravity.CENTER
             setPadding(12, 12, 12, 12)
-            addView(status, LinearLayout.LayoutParams(-1, 0, 1f))
+            addView(status, LinearLayout.LayoutParams(-1, -2))
             addView(number, LinearLayout.LayoutParams(-1, -2))
             addView(dialPad, LinearLayout.LayoutParams(-1, -2))
             addView(call, LinearLayout.LayoutParams(-1, -2))
+            addView(probe, LinearLayout.LayoutParams(-1, -2))
+            addView(clearProbe, LinearLayout.LayoutParams(-1, -2))
+            addView(probeResult, LinearLayout.LayoutParams(-1, -2))
             addView(defaultDialer, LinearLayout.LayoutParams(-1, -2))
             addView(start, LinearLayout.LayoutParams(-1, -2))
             addView(stop, LinearLayout.LayoutParams(-1, -2))
-        })
+        }
+        setContentView(ScrollView(this).apply { addView(content) })
 
         call.setOnClickListener {
             val n = number.text.toString().trim()
@@ -124,17 +141,13 @@ class MainActivity : Activity() {
             val telecom = getSystemService(TELECOM_SERVICE) as TelecomManager
             if (android.os.Build.VERSION.SDK_INT >= 23 && packageName == telecom.defaultDialerPackage) {
                 telecom.placeCall(Uri.fromParts("tel", n, null), null)
-            } else {
-                startActivity(Intent(Intent.ACTION_CALL, Uri.fromParts("tel", n, null)))
-            }
-        } catch (e: Exception) {
-            status.text = "Call failed: ${e.javaClass.simpleName}"
-        }
+            } else startActivity(Intent(Intent.ACTION_CALL, Uri.fromParts("tel", n, null)))
+        } catch (e: Exception) { status.text = "Call failed: ${e.javaClass.simpleName}" }
     }
 
     private fun requestPermissionsIfNeeded() {
         if (android.os.Build.VERSION.SDK_INT >= 23 && checkSelfPermission(Manifest.permission.CALL_PHONE) != PackageManager.PERMISSION_GRANTED) {
-            requestPermissions(arrayOf(Manifest.permission.CALL_PHONE, Manifest.permission.READ_PHONE_STATE), 100)
+            requestPermissions(arrayOf(Manifest.permission.CALL_PHONE, Manifest.permission.READ_PHONE_STATE, Manifest.permission.RECORD_AUDIO), 100)
         } else startBridgeService()
     }
 
@@ -155,9 +168,7 @@ class MainActivity : Activity() {
             startActivity(Intent(TelecomManager.ACTION_CHANGE_DEFAULT_DIALER).apply {
                 putExtra(TelecomManager.EXTRA_CHANGE_DEFAULT_DIALER_PACKAGE_NAME, packageName)
             })
-        } catch (e: Exception) {
-            status.text = "Could not open default phone-app selection: ${e.javaClass.simpleName}"
-        }
+        } catch (e: Exception) { status.text = "Could not open default phone-app selection: ${e.javaClass.simpleName}" }
     }
 
     private fun startBridgeService() { startService(Intent(this, BridgeService::class.java)) }
