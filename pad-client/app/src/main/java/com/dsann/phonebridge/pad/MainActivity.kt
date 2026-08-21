@@ -1,9 +1,11 @@
 package com.dsann.phonebridge.pad
 
 import android.app.Activity
+import android.graphics.Color
 import android.os.Bundle
-import android.text.InputType
+import android.os.SystemClock
 import android.view.Gravity
+import android.view.View
 import android.widget.Button
 import android.widget.EditText
 import android.widget.LinearLayout
@@ -22,58 +24,102 @@ class MainActivity : Activity() {
     private lateinit var connectionStatus: TextView
     private lateinit var callStatus: TextView
     private lateinit var number: EditText
+    private lateinit var timer: TextView
+    private var callStartedAt = 0L
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         val root = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            gravity = Gravity.CENTER_HORIZONTAL
-            setPadding(32, 32, 32, 32)
+            setPadding(36, 36, 36, 36)
+            setBackgroundColor(Color.rgb(248, 249, 252))
         }
 
-        val title = TextView(this).apply { text = "PhoneBridge"; textSize = 24f; gravity = Gravity.CENTER }
-        number = EditText(this).apply {
-            hint = "Number to call"
-            inputType = InputType.TYPE_CLASS_PHONE
-            setSingleLine(true)
-            textSize = 22f
+        val title = TextView(this).apply {
+            text = "PhoneBridge"
+            textSize = 28f
+            setTextColor(Color.rgb(30, 35, 45))
+            gravity = Gravity.CENTER
         }
-        val ip = EditText(this).apply { hint = "Phab IP address"; setSingleLine(true); setText("192.168.43.1") }
-        val connect = Button(this).apply { text = "Connect" }
-        val call = Button(this).apply { text = "CALL" }
-        val ping = Button(this).apply { text = "PING" }
-        connectionStatus = TextView(this).apply { text = "Connection: Disconnected"; textSize = 17f }
-        callStatus = TextView(this).apply { text = "Call status: IDLE"; textSize = 20f; setPadding(0, 24, 0, 24) }
+        val subtitle = TextView(this).apply {
+            text = "Cellular phone • Wi-Fi bridge"
+            textSize = 14f
+            gravity = Gravity.CENTER
+        }
+        number = EditText(this).apply {
+            hint = "Phone number"
+            inputType = android.text.InputType.TYPE_CLASS_PHONE
+            textSize = 22f
+            setSingleLine(true)
+            gravity = Gravity.CENTER
+        }
+        val connect = Button(this).apply { text = "Connect to Phab" }
+        val call = Button(this).apply { text = "☎  CALL"; textSize = 18f }
+        val answer = Button(this).apply { text = "ANSWER" }
+        val reject = Button(this).apply { text = "REJECT" }
+        val hangup = Button(this).apply { text = "END CALL" }
+        val ping = Button(this).apply { text = "PING (test)" }
+
+        connectionStatus = TextView(this).apply {
+            text = "● Disconnected"
+            textSize = 16f
+            gravity = Gravity.CENTER
+            setPadding(0, 18, 0, 8)
+        }
+        callStatus = TextView(this).apply {
+            text = "IDLE"
+            textSize = 26f
+            gravity = Gravity.CENTER
+            setPadding(0, 18, 0, 4)
+        }
+        timer = TextView(this).apply {
+            text = "00:00"
+            textSize = 16f
+            gravity = Gravity.CENTER
+        }
 
         root.addView(title)
-        root.addView(number)
-        root.addView(ip)
-        root.addView(connect)
-        root.addView(call)
-        root.addView(ping)
+        root.addView(subtitle)
         root.addView(connectionStatus)
         root.addView(callStatus)
+        root.addView(timer)
+        root.addView(number, LinearLayout.LayoutParams(-1, -2).apply { setMargins(0, 20, 0, 8) })
+        root.addView(call)
+
+        val row = LinearLayout(this).apply { gravity = Gravity.CENTER }
+        row.addView(answer, LinearLayout.LayoutParams(0, -2, 1f))
+        row.addView(reject, LinearLayout.LayoutParams(0, -2, 1f))
+        row.addView(hangup, LinearLayout.LayoutParams(0, -2, 1f))
+        root.addView(row)
+        root.addView(connect)
+        root.addView(ping)
         setContentView(root)
 
-        connect.setOnClickListener { connectTo(ip.text.toString().trim()) }
+        connect.setOnClickListener { connectTo("192.168.43.1") }
         ping.setOnClickListener { send("PING") }
         call.setOnClickListener {
             val n = number.text.toString().trim()
-            if (n.isEmpty()) setConnectionStatus("Enter a number")
-            else {
+            if (n.isNotEmpty()) {
                 setCallStatus("DIALING")
                 send("DIAL:$n")
-            }
+            } else setCallStatus("ENTER NUMBER")
         }
+        answer.setOnClickListener { send("ANSWER") }
+        reject.setOnClickListener { send("REJECT") }
+        hangup.setOnClickListener { send("HANGUP") }
     }
 
-    private fun setConnectionStatus(value: String) = runOnUiThread { connectionStatus.text = "Connection: $value" }
-    private fun setCallStatus(value: String) = runOnUiThread { callStatus.text = "Call status: $value" }
+    private fun setConnectionStatus(value: String) = runOnUiThread { connectionStatus.text = value }
+
+    private fun setCallStatus(value: String) = runOnUiThread {
+        callStatus.text = value
+        if (value == "OFFHOOK") callStartedAt = SystemClock.elapsedRealtime()
+        if (value == "IDLE") callStartedAt = 0L
+    }
 
     private fun connectTo(host: String) {
-        if (host.isEmpty()) { setConnectionStatus("Enter the Phab IP address"); return }
         closeConnection()
-        setConnectionStatus("Connecting to $host:45821...")
+        setConnectionStatus("● Connecting…")
         io.execute {
             try {
                 val s = Socket()
@@ -83,30 +129,27 @@ class MainActivity : Activity() {
                 val reader = BufferedReader(InputStreamReader(s.getInputStream()))
                 socket = s
                 writer = w
-                setConnectionStatus("Connected to $host")
+                setConnectionStatus("● Connected • Phab")
                 io.execute {
                     try {
                         while (!s.isClosed) {
                             val line = reader.readLine() ?: break
                             when {
                                 line.startsWith("CALL_STATE:") -> setCallStatus(line.substringAfter(':'))
-                                else -> setConnectionStatus(line)
+                                line == "PONG" -> setConnectionStatus("● Connected • PONG")
                             }
                         }
-                    } catch (e: Exception) {
-                        if (!s.isClosed) setConnectionStatus("Read failed: ${e.javaClass.simpleName}")
+                    } catch (_: Exception) {
                     } finally {
                         if (socket === s) {
                             socket = null
                             writer = null
-                            setConnectionStatus("Disconnected from $host")
+                            setConnectionStatus("● Disconnected")
                         }
                     }
                 }
             } catch (e: Exception) {
-                socket = null
-                writer = null
-                setConnectionStatus("Connection failed: ${e.javaClass.simpleName}: ${e.message ?: "no message"}")
+                setConnectionStatus("● Connection failed: ${e.javaClass.simpleName}")
             }
         }
     }
@@ -115,14 +158,13 @@ class MainActivity : Activity() {
         io.execute {
             val w = writer
             val s = socket
-            if (s == null || s.isClosed || w == null) { setConnectionStatus("Not connected"); return@execute }
+            if (s == null || s.isClosed || w == null) { setConnectionStatus("● Not connected"); return@execute }
             try {
                 w.println(command)
                 w.flush()
-                if (w.checkError()) setConnectionStatus("Send failed: socket write error")
-                else setConnectionStatus("Sent: $command")
+                if (w.checkError()) setConnectionStatus("● Send failed")
             } catch (e: Exception) {
-                setConnectionStatus("Send failed: ${e.javaClass.simpleName}: ${e.message ?: "no message"}")
+                setConnectionStatus("● Send failed: ${e.javaClass.simpleName}")
             }
         }
     }
