@@ -3,12 +3,11 @@ package com.dsann.phonebridge
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
-import android.os.Build
-import android.telecom.TelecomManager
 import java.io.BufferedReader
 import java.io.InputStreamReader
 import java.net.ServerSocket
 import java.net.Socket
+import java.util.Collections
 import java.util.concurrent.Executors
 
 class BridgeServer(
@@ -17,39 +16,69 @@ class BridgeServer(
 ) {
     private var serverSocket: ServerSocket? = null
     private val executor = Executors.newCachedThreadPool()
+    private val clients = Collections.synchronizedSet(mutableSetOf<Socket>())
 
     fun start() {
         executor.execute {
             try {
                 serverSocket = ServerSocket(BridgeProtocol.PORT)
                 onStatus("Listening on port ${BridgeProtocol.PORT}")
-                while (!serverSocket!!.isClosed) {
-                    handleClient(serverSocket!!.accept())
-                }
+                while (!serverSocket!!.isClosed) handleClient(serverSocket!!.accept())
             } catch (_: Exception) {
-                onStatus("Server stopped")
+                if (serverSocket?.isClosed != true) onStatus("Server stopped")
             }
         }
     }
 
     fun stop() {
         try { serverSocket?.close() } catch (_: Exception) { }
+        synchronized(clients) {
+            clients.forEach { try { it.close() } catch (_: Exception) { } }
+            clients.clear()
+        }
+        executor.shutdownNow()
+    }
+
+    fun broadcastCallState(state: String) {
+        val message = "CALL_STATE:$state\n"
+        onStatus("Call state: $state")
+        synchronized(clients) {
+            val dead = mutableListOf<Socket>()
+            clients.forEach { socket ->
+                try {
+                    val writer = socket.getOutputStream().bufferedWriter()
+                    writer.write(message)
+                    writer.flush()
+                } catch (_: Exception) { dead.add(socket) }
+            }
+            dead.forEach { try { it.close() } catch (_: Exception) { }; clients.remove(it) }
+        }
     }
 
     private fun handleClient(socket: Socket) {
+        clients.add(socket)
         executor.execute {
             socket.use { s ->
-                val reader = BufferedReader(InputStreamReader(s.getInputStream()))
-                val writer = s.getOutputStream().bufferedWriter()
-                writer.write("READY\n")
-                writer.flush()
-
-                while (!s.isClosed) {
-                    val line = reader.readLine() ?: break
-                    val response = process(line.trim())
-                    writer.write(response + "\n")
+                try {
+                    val reader = BufferedReader(InputStreamReader(s.getInputStream()))
+                    val writer = s.getOutputStream().bufferedWriter()
+                    writer.write("READY\n")
                     writer.flush()
-                }
+
+                    val lastState = context.getSharedPreferences("bridge", Context.MODE_PRIVATE)
+                        .getString("last_call_state", null)
+                    if (!lastState.isNullOrEmpty()) {
+                        writer.write("CALL_STATE:$lastState\n")
+                        writer.flush()
+                    }
+
+                    while (!s.isClosed) {
+                        val line = reader.readLine() ?: break
+                        writer.write(process(line.trim()) + "\n")
+                        writer.flush()
+                    }
+                } catch (_: Exception) {
+                } finally { clients.remove(s) }
             }
         }
     }
@@ -58,8 +87,7 @@ class BridgeServer(
         return try {
             when {
                 command.startsWith("${BridgeProtocol.DIAL}:") -> {
-                    val number = command.substringAfter(':').trim()
-                    dial(number)
+                    dial(command.substringAfter(':').trim())
                     "OK:DIAL"
                 }
                 command == BridgeProtocol.PING -> "PONG"
@@ -76,9 +104,7 @@ class BridgeServer(
     private fun dial(number: String) {
         require(number.isNotEmpty()) { "empty number" }
         val uri = Uri.parse("tel:" + Uri.encode(number))
-        val intent = Intent(Intent.ACTION_CALL, uri).apply {
-            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-        }
+        val intent = Intent(Intent.ACTION_CALL, uri).apply { addFlags(Intent.FLAG_ACTIVITY_NEW_TASK) }
         context.startActivity(intent)
         onStatus("Dialing $number")
     }
