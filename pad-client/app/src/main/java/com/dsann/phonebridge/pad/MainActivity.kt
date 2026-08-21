@@ -2,6 +2,7 @@ package com.dsann.phonebridge.pad
 
 import android.app.Activity
 import android.os.Bundle
+import android.text.InputType
 import android.view.Gravity
 import android.widget.Button
 import android.widget.EditText
@@ -20,6 +21,7 @@ class MainActivity : Activity() {
     private var writer: PrintWriter? = null
     private lateinit var connectionStatus: TextView
     private lateinit var callStatus: TextView
+    private lateinit var number: EditText
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -30,15 +32,24 @@ class MainActivity : Activity() {
         }
 
         val title = TextView(this).apply { text = "PhoneBridge"; textSize = 24f; gravity = Gravity.CENTER }
-        val ip = EditText(this).apply { hint = "Phab IP address"; setSingleLine(true) }
+        number = EditText(this).apply {
+            hint = "Number to call"
+            inputType = InputType.TYPE_CLASS_PHONE
+            setSingleLine(true)
+            textSize = 22f
+        }
+        val ip = EditText(this).apply { hint = "Phab IP address"; setSingleLine(true); setText("192.168.43.1") }
         val connect = Button(this).apply { text = "Connect" }
+        val call = Button(this).apply { text = "CALL" }
         val ping = Button(this).apply { text = "PING" }
         connectionStatus = TextView(this).apply { text = "Connection: Disconnected"; textSize = 17f }
-        callStatus = TextView(this).apply { text = "Call status: UNKNOWN"; textSize = 20f; setPadding(0, 24, 0, 24) }
+        callStatus = TextView(this).apply { text = "Call status: IDLE"; textSize = 20f; setPadding(0, 24, 0, 24) }
 
         root.addView(title)
+        root.addView(number)
         root.addView(ip)
         root.addView(connect)
+        root.addView(call)
         root.addView(ping)
         root.addView(connectionStatus)
         root.addView(callStatus)
@@ -46,6 +57,14 @@ class MainActivity : Activity() {
 
         connect.setOnClickListener { connectTo(ip.text.toString().trim()) }
         ping.setOnClickListener { send("PING") }
+        call.setOnClickListener {
+            val n = number.text.toString().trim()
+            if (n.isEmpty()) setConnectionStatus("Enter a number")
+            else {
+                setCallStatus("DIALING")
+                send("DIAL:$n")
+            }
+        }
     }
 
     private fun setConnectionStatus(value: String) = runOnUiThread { connectionStatus.text = "Connection: $value" }
@@ -65,7 +84,6 @@ class MainActivity : Activity() {
                 socket = s
                 writer = w
                 setConnectionStatus("Connected to $host")
-
                 io.execute {
                     try {
                         while (!s.isClosed) {
