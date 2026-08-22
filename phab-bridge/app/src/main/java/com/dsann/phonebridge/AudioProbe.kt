@@ -12,7 +12,7 @@ import java.util.concurrent.Executors
 import java.util.concurrent.Future
 import java.util.concurrent.atomic.AtomicBoolean
 
-/** Diagnostic only. Loopback uses the app's VOICE_COMMUNICATION path and never transmits or stores audio. */
+/** Diagnostic only. Never stores or transmits captured audio. */
 object AudioProbe {
     private val executor = Executors.newSingleThreadExecutor()
     private var loopbackTask: Future<*>? = null
@@ -27,6 +27,7 @@ object AudioProbe {
             lines += "MIC:${!am.isMicrophoneMute}"
             lines += "MODE:${am.mode}"
             lines += "SPEAKER:${am.isSpeakerphoneOn}"
+            lines += "CALL_SOURCE_PROBE:BEGIN"
             val sources = listOf(
                 "DEFAULT" to MediaRecorder.AudioSource.DEFAULT,
                 "MIC" to MediaRecorder.AudioSource.MIC,
@@ -36,7 +37,11 @@ object AudioProbe {
                 "CAMCORDER" to MediaRecorder.AudioSource.CAMCORDER,
                 "VOICE_COMMUNICATION" to MediaRecorder.AudioSource.VOICE_COMMUNICATION
             )
-            for ((name, source) in sources) lines += "SOURCE_$name:${probeSource(source)}"
+            for ((name, source) in sources) {
+                val result = probeSource(source)
+                lines += "SOURCE_$name:$result"
+            }
+            lines += "CALL_SOURCE_PROBE:END"
             prefs.edit().putString("audio_probe", lines.joinToString("\n")).apply()
         }
     }
@@ -110,7 +115,12 @@ object AudioProbe {
             record = AudioRecord(source, 8000, AudioFormat.CHANNEL_IN_MONO, AudioFormat.ENCODING_PCM_16BIT, min * 2)
             if (record.state != AudioRecord.STATE_INITIALIZED) "NOT_INITIALIZED(state=${record.state})"
             else {
-                try { record.startRecording(); val buffer = ShortArray(160); val read = record.read(buffer, 0, buffer.size); if (read > 0) "OPEN_READABLE" else "OPEN_READ_$read" }
+                try {
+                    record.startRecording()
+                    val buffer = ShortArray(160)
+                    val read = record.read(buffer, 0, buffer.size)
+                    if (read > 0) "OPEN_READABLE" else "OPEN_READ_$read"
+                } catch (e: SecurityException) { "READ_PERMISSION_DENIED" }
                 catch (e: Throwable) { "OPEN_BUT_READ_ERROR:${e.javaClass.simpleName}" }
             }
         } catch (e: SecurityException) { "PERMISSION_DENIED" }
