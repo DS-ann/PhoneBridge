@@ -75,14 +75,18 @@ class PhoneInCallService : InCallService() {
         if (state == null) return
         val route = routeName(state.route)
         val supported = supportedRoutes(state.supportedRouteMask)
+        val bluetoothDevices = try {
+            state.supportedBluetoothDevices.joinToString(",") { it.name ?: it.address }
+        } catch (_: Throwable) { "UNAVAILABLE" }
         getSharedPreferences(BridgeService.PREFS, MODE_PRIVATE).edit()
             .putString("audio_route", route)
             .putString("audio_supported", supported)
+            .putString("audio_bluetooth_devices", bluetoothDevices)
             .putBoolean("audio_muted", state.isMuted).apply()
         try {
             startService(Intent(this, BridgeService::class.java).apply {
                 action = BridgeService.ACTION_TELECOM_INFO
-                putExtra(BridgeService.EXTRA_TELECOM_INFO, "AUDIO_ROUTE:$route;SUPPORTED:$supported;MUTED:${state.isMuted}")
+                putExtra(BridgeService.EXTRA_TELECOM_INFO, "AUDIO_ROUTE:$route;SUPPORTED:$supported;BT_DEVICES:$bluetoothDevices;MUTED:${state.isMuted}")
             })
         } catch (_: Exception) { }
     }
@@ -169,6 +173,7 @@ object InCallController {
 
     fun routeEarpiece(): String = service?.requestRoute(CallAudioState.ROUTE_EARPIECE) ?: "ERROR:NO_SERVICE"
     fun routeSpeaker(): String = service?.requestRoute(CallAudioState.ROUTE_SPEAKER) ?: "ERROR:NO_SERVICE"
+    fun routeBluetooth(): String = service?.requestRoute(CallAudioState.ROUTE_BLUETOOTH) ?: "ERROR:NO_SERVICE"
 
     fun publishState(state: Int) {
         val label = when (state) {
