@@ -1,0 +1,105 @@
+name: Inspect Phab firmware audio configuration
+
+on:
+  workflow_dispatch:
+    inputs:
+      firmware_url:
+        description: 'Direct URL to the firmware ZIP'
+        required: true
+        type: string
+        default: 'https://archive.org/download/PB2670MS000050171016ROW/PB2-670M_S000050_171016_ROW.zip'
+
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Download firmware
+        env:
+          FIRMWARE_URL: ${{ inputs.firmware_url }}
+        run: |
+          set -euo pipefail
+          mkdir -p work extracted report
+          curl -L --fail --retry 3 --retry-all-errors -o work/firmware.zip "$FIRMWARE_URL"
+          ls -lh work/firmware.zip
+
+      - name: Extract firmware package
+        run: |
+          set -euo pipefail
+          7z x -y work/firmware.zip -owork/package >/dev/null
+          find work/package -maxdepth 3 -type f -printf '%p %s bytes\n' | sort | head -200
+
+      - name: Locate system image
+        run: |
+          set -euo pipefail
+          SYSTEM_IMG="$(find work/package -type f -iname 'system.img' -print -quit)"
+          if [ -z "$SYSTEM_IMG" ]; then
+            echo 'system.img not found' >&2
+            exit 1
+          fi
+          cp "$SYSTEM_IMG" work/system.img
+          ls -lh work/system.img
+
+      - name: Inspect EXT4 image without mounting
+        run: |
+          set -euo pipefail
+          mkdir -p extracted
+          e2fsck -fn work/system.img 2>&1 | tee report/e2fsck.txt || true
+          dumpe2fs -h work/system.img 2>&1 | tee report/ext4-header.txt || true
+          debugfs -R 'ls -p /etc' work/system.img 2>&1 | tee report/etc-list.txt || true
+          debugfs -R 'ls -p /lib/hw' work/system.img 2>&1 | tee report/lib-hw-list.txt || true
+          debugfs -R 'ls -p /lib64/hw' work/system.img 2>&1 | tee report/lib64-hw-list.txt || true
+
+      - name: Extract audio configuration files
+        run: |
+          set -euo pipefail
+          mkdir -p extracted/etc extracted/lib/hw extracted/lib64/hw
+          extract_if_present() {
+            src="$1"; dst="$2"
+            if debugfs -R "stat $src" work/system.img 2>/dev/null | grep -q 'Inode:'; then
+              echo "Extracting $src"
+              debugfs -R "dump $src $dst" work/system.img >/dev/null 2>&1 || true
+            fi
+          }
+          for f in \
+            /etc/audio_policy.conf \
+            /etc/audio_policy_configuration.xml \
+            /etc/audio_policy_volumes.xml \
+            /etc/mixer_paths.xml \
+            /etc/mixer_paths_0.xml \
+            /etc/mixer_paths_tasha.xml \
+            /etc/audio_effects.conf \
+            /etc/audio_effects.xml; do
+            base="$(basename "$f")"
+            extract_if_present "$f" "extracted/etc/$base"
+          done
+          for f in $(debugfs -R 'ls -p /etc' work/system.img 2>/dev/null | awk -F: '/mixer_paths.*(xml|conf)/ {print $2}' | sed 's/^ //'); do
+            base="$(basename "$f")"
+            [ -n "$base" ] && extract_if_present "/etc/$base" "extracted/etc/$base"
+          done
+          for f in $(debugfs -R 'ls -p /lib/hw' work/system.img 2>/dev/null | awk -F: '{print $2}' | sed 's/^ //'); do
+            case "$f" in *audio*.so|audio*.so) base="$(basename "$f")"; extract_if_present "/lib/hw/$base" "extracted/lib/hw/$base";; esac
+          done
+          for f in $(debugfs -R 'ls -p /lib64/hw' work/system.img 2>/dev/null | awk -F: '{print $2}' | sed 's/^ //'); do
+            case "$f" in *audio*.so|audio*.so) base="$(basename "$f")"; extract_if_present "/lib64/hw/$base" "extracted/lib64/hw/$base";; esac
+          done
+          find extracted -type f -printf '%p %s bytes\n' | sort | tee report/extracted-files.txt
+
+      - name: Search audio routing and telephony TX/RX definitions
+        run: |
+          set -euo pipefail
+          grep -RniE 'TELEPHONY_TX|TELEPHONY_RX|VOICE_CALL|VOICE_UPLINK|VOICE_DOWNLINK|VOICE_COMMUNICATION|EARPIECE|SPEAKER|AUDIO_DEVICE_IN|AUDIO_DEVICE_OUT|telephony|voice' extracted/etc 2>/dev/null | tee report/audio-routing-matches.txt || true
+          find extracted -type f \( -name '*.so' -o -name '*.conf' -o -name '*.xml' \) -print0 | xargs -0 -r file | tee report/file-types.txt
+
+      - name: Package results
+        run: |
+          set -euo pipefail
+          tar -czf phab-audio-inspection.tar.gz report extracted
+          ls -lh phab-audio-inspection.tar.gz
+
+      - name: Upload inspection results
+        uses: actions/upload-artifact@v4
+        with:
+          name: phab-audio-inspection
+          path: phab-audio-inspection.tar.gz
+          retention-days: 7
