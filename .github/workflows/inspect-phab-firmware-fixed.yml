@@ -7,7 +7,7 @@ on:
         description: Firmware ZIP URL
         required: true
         type: string
-        default: https://archive.org/download/PB2670MS000050171016ROW/PB2-670M_S000050_171016_ROW.zip
+        default: 'https://archive.org/download/PB2670MS000050171016ROW/PB2-670M_S000050_171016_ROW.zip'
 
 jobs:
   inspect:
@@ -23,9 +23,13 @@ jobs:
           key: phab-firmware-cache-v1
 
       - name: Prepare directories
-        run: mkdir -p cache/firmware work extracted/diagnostics extracted/system
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p cache/firmware work extracted/diagnostics extracted/system
 
       - name: Download firmware
+        shell: bash
         env:
           FIRMWARE_URL: ${{ inputs.firmware_url }}
         run: |
@@ -34,11 +38,12 @@ jobs:
           if [ ! -s "$archive" ]; then
             curl -L --fail --retry 3 "$FIRMWARE_URL" -o "$archive"
           else
-            echo "Using cached firmware."
+            echo 'Using cached firmware.'
           fi
           ls -lh "$archive"
 
       - name: Extract system image
+        shell: bash
         run: |
           set -euo pipefail
           rm -f work/system-sign.img work/system.img work/system-payload.img
@@ -56,17 +61,19 @@ jobs:
           fi
 
       - name: Inspect and unwrap system image
+        shell: bash
         run: |
           set -euo pipefail
           img=$(cat work/image-path.txt)
           python3 scripts/inspect_phab_system_image.py "$img" work/system-payload.img extracted/diagnostics/bfbf-header.txt extracted/diagnostics/ext4-scan.txt
-          file "$(cat work/image-path.txt)" > extracted/diagnostics/file.txt || true
-          stat -c 'size=%s bytes' "$(cat work/image-path.txt)" > extracted/diagnostics/size.txt
-          xxd -l 512 "$(cat work/image-path.txt)" > extracted/diagnostics/header.txt || true
+          file "$img" > extracted/diagnostics/file.txt || true
+          stat -c 'size=%s bytes' "$img" > extracted/diagnostics/size.txt
+          xxd -l 512 "$img" > extracted/diagnostics/header.txt || true
           cat extracted/diagnostics/bfbf-header.txt
           cat extracted/diagnostics/ext4-scan.txt
 
       - name: Extract validated filesystem
+        shell: bash
         run: |
           set -euo pipefail
           if [ ! -s work/ext4-selection.txt ]; then
