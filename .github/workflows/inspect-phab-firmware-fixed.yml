@@ -4,10 +4,10 @@ on:
   workflow_dispatch:
     inputs:
       firmware_url:
-        description: "Firmware ZIP URL"
+        description: Firmware ZIP URL
         required: true
         type: string
-        default: "https://archive.org/download/PB2670MS000050171016ROW/PB2-670M_S000050_171016_ROW.zip"
+        default: https://archive.org/download/PB2670MS000050171016ROW/PB2-670M_S000050_171016_ROW.zip
 
 jobs:
   inspect:
@@ -15,80 +15,90 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-
       - name: Cache firmware
         uses: actions/cache@v4
         with:
           path: cache/firmware
           key: phab-firmware-cache-v1
-
       - name: Prepare directories
-        shell: bash
         run: mkdir -p cache/firmware work extracted/diagnostics
-
       - name: Download firmware
-        shell: bash
         env:
           FIRMWARE_URL: ${{ inputs.firmware_url }}
         run: |
           set -euo pipefail
-          archive="cache/firmware/firmware.zip"
-          if [ ! -s "$archive" ]; then
-            echo "Downloading firmware..."
-            curl -L --fail --retry 3 --retry-delay 2 "$FIRMWARE_URL" -o "$archive"
-          else
-            echo "Using cached firmware."
-          fi
+          archive=cache/firmware/firmware.zip
+          if [ ! -s "$archive" ]; then curl -L --fail --retry 3 "$FIRMWARE_URL" -o "$archive"; else echo 'Using cached firmware.'; fi
           ls -lh "$archive"
-
       - name: Extract system image
-        shell: bash
         run: |
           set -euo pipefail
           unzip -j -o cache/firmware/firmware.zip '*system-sign.img' -d work || true
-          if [ ! -s work/system-sign.img ]; then
-            unzip -j -o cache/firmware/firmware.zip '*system.img' -d work || true
-          fi
-          if [ -s work/system-sign.img ]; then
-            echo "work/system-sign.img" > work/image-path.txt
-          elif [ -s work/system.img ]; then
-            echo "work/system.img" > work/image-path.txt
-          else
-            echo "No system image found in firmware archive."
-            exit 1
-          fi
-
+          if [ ! -s work/system-sign.img ]; then unzip -j -o cache/firmware/firmware.zip '*system.img' -d work || true; fi
+          if [ -s work/system-sign.img ]; then echo work/system-sign.img > work/image-path.txt; elif [ -s work/system.img ]; then echo work/system.img > work/image-path.txt; else exit 1; fi
       - name: Inspect image
-        shell: bash
         run: |
           set -euo pipefail
           img=$(cat work/image-path.txt)
           file "$img" > extracted/diagnostics/file.txt || true
           stat -c 'size=%s bytes' "$img" > extracted/diagnostics/size.txt
-          xxd -l 256 "$img" > extracted/diagnostics/header.txt || true
+          xxd -l 512 "$img" > extracted/diagnostics/header.txt || true
           command -v binwalk >/dev/null && binwalk "$img" > extracted/diagnostics/binwalk.txt 2>&1 || true
-          strings -a -n 8 "$img" | grep -Ei 'ext[234]|sparse|ANDROID|AVB|verity|filesystem|MTK|sign' | head -300 > extracted/diagnostics/signature-strings.txt || true
-
-      - name: Scan EXT4 magic locations
-        shell: bash
+      - name: Validate EXT4 candidates
         run: |
           set -euo pipefail
           img=$(cat work/image-path.txt)
-          python3 -c 'import sys; p=sys.argv[1]; f=open(p,"rb"); n=0; chunk=16*1024*1024; base=0; tail=b""; size=(f.seek(0,2) or f.tell()); f.seek(0)
-          while base < size:
-              data=f.read(min(chunk,size-base)); buf=tail+data; start=base-len(tail); pos=0
-              while True:
-                  i=buf.find(b"\x53\xef",pos)
-                  if i < 0: break
-                  print("candidate_magic_offset=0x%x" % (start+i)); n+=1; pos=i+2
-              tail=data[-4096:]; base+=len(data)
-          print("candidate_count=%d" % n)' "$img" > extracted/diagnostics/ext4-candidates.txt
-          cat extracted/diagnostics/ext4-candidates.txt
-
+          python3 - "$img" > extracted/diagnostics/ext4-scan.txt <<'PY'
+import os,struct,sys
+p=sys.argv[1]; size=os.path.getsize(p); hits=0; valid=[]
+with open(p,'rb') as f:
+    chunk=16*1024*1024; tail=b''; base=0
+    while base<size:
+        data=f.read(min(chunk,size-base))
+        if not data: break
+        buf=tail+data; start=base-len(tail); pos=0
+        while True:
+            i=buf.find(b'\x53\xef',pos)
+            if i<0: break
+            pos=i+2; hits+=1; magic=start+i; sb=magic-0x38; fs=magic-1024
+            if sb<0 or fs<0 or fs%4096: continue
+            f.seek(sb); s=f.read(0x100)
+            if len(s)<0x100 or s[0x38:0x3a]!=b'\x53\xef': continue
+            inodes,blocks=struct.unpack_from('<II',s,0); logbs=struct.unpack_from('<I',s,24)[0]; rev=struct.unpack_from('<I',s,76)[0]; compat,incompat,ro=struct.unpack_from('<III',s,92); inode_size=struct.unpack_from('<H',s,88)[0]
+            if logbs>6 or not inodes or not blocks: continue
+            bs=1024<<logbs
+            if bs not in (1024,2048,4096) or inode_size<128 or inode_size>bs: continue
+            f.seek(sb+0x150); hi=struct.unpack('<I',f.read(4))[0]
+            total=blocks|(hi<<32); length=total*bs
+            if not total or length>size-fs: continue
+            valid.append((fs,bs,total,rev,compat,incompat,ro,inode_size,s[104:120].hex()))
+        tail=data[-4096:]; base+=len(data)
+for v in valid:
+    print('VALID_EXT4 filesystem_start=0x%x block_size=%d blocks=%d revision=%d compat=0x%08x incompat=0x%08x ro_compat=0x%08x inode_size=%d uuid=%s'%v)
+print('candidate_magic_count=%d'%hits); print('validated_ext4_count=%d'%len(valid))
+if valid:
+    fs,bs,blocks,*_=valid[0]; open('work/ext4-selection.txt','w').write('%d %d %d\n'%(fs,bs,blocks)); print('SELECTED_START=0x%x'%fs)
+PY
+          cat extracted/diagnostics/ext4-scan.txt
+      - name: Extract validated filesystem
+        run: |
+          set -euo pipefail
+          if [ ! -s work/ext4-selection.txt ]; then echo 'No validated EXT4 filesystem; skipping.'; exit 0; fi
+          read -r start bs blocks < work/ext4-selection.txt
+          img=$(cat work/image-path.txt); bytes=$((bs*blocks)); dd if="$img" of=work/system-ext4.img bs=1 skip="$start" count="$bytes" status=none
+          mkdir -p extracted/system
+          for f in audio_policy.conf audio_policy_configuration.xml audio_effects.conf audio_platform_info.xml; do debugfs -R "dump /etc/$f extracted/system/$f" work/system-ext4.img >/dev/null 2>&1 || true; done
+          find extracted/system -type f -print > extracted/diagnostics/extracted-files.txt
       - name: Upload diagnostics
         uses: actions/upload-artifact@v4
         with:
           name: phab-audio-inspection
           path: extracted/diagnostics
-          if-no-files-found: error
+          retention-days: 7
+      - name: Upload audio configuration
+        uses: actions/upload-artifact@v4
+        with:
+          name: phab-audio-config
+          path: extracted/system
+          if-no-files-found: ignore
           retention-days: 7
