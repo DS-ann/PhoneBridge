@@ -137,8 +137,13 @@ class BridgeService : Service() {
                 broadcast("PHAB:$line")
                 when {
                     line == "PONG" -> broadcast("CONNECTION:PONG")
-                    line.startsWith("CALL_STATE:RINGING") -> startWifiAudio()
-                    line.startsWith("CALL_STATE:IDLE") -> stopWifiAudio()
+                    line.startsWith("CALL_STATE:RINGING") ||
+                    line.startsWith("CALL_STATE:DIALING") ||
+                    line.startsWith("CALL_STATE:CONNECTING") ||
+                    line.startsWith("CALL_STATE:OFFHOOK") ||
+                    line.startsWith("CALL_STATE:ACTIVE") -> startWifiAudio()
+                    line.startsWith("CALL_STATE:IDLE") ||
+                    line.startsWith("CALL_STATE:DISCONNECTED") -> stopWifiAudio()
                 }
             }
         } catch (_: Exception) {
