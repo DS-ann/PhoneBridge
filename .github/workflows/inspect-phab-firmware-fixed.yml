@@ -1,28 +1,32 @@
-name: Phab Firmware Audio Inspector
+name: Phab Firmware Audio Inspector Fixed
 
 on:
   workflow_dispatch:
     inputs:
       firmware_url:
-        description: Firmware ZIP URL
+        description: "Firmware ZIP URL"
         required: true
         type: string
-        default: https://archive.org/download/PB2670MS000050171016ROW/PB2-670M_S000050_171016_ROW.zip
+        default: "https://archive.org/download/PB2670MS000050171016ROW/PB2-670M_S000050_171016_ROW.zip"
 
 jobs:
   inspect:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout
+        uses: actions/checkout@v4
+
       - name: Cache firmware
         uses: actions/cache@v4
         with:
           path: cache/firmware
           key: phab-firmware-cache-v1
+
       - name: Prepare directories
         shell: bash
         run: mkdir -p cache/firmware work extracted/diagnostics
-      - name: Download firmware when not cached
+
+      - name: Download firmware
         shell: bash
         env:
           FIRMWARE_URL: ${{ inputs.firmware_url }}
@@ -30,58 +34,57 @@ jobs:
           set -euo pipefail
           archive="cache/firmware/firmware.zip"
           if [ ! -s "$archive" ]; then
+            echo "Downloading firmware..."
             curl -L --fail --retry 3 --retry-delay 2 "$FIRMWARE_URL" -o "$archive"
           else
             echo "Using cached firmware."
           fi
-      - name: Extract and inspect system image
+          ls -lh "$archive"
+
+      - name: Extract system image
         shell: bash
         run: |
           set -euo pipefail
           unzip -j -o cache/firmware/firmware.zip '*system-sign.img' -d work || true
-          if [ ! -s work/system-sign.img ]; then unzip -j -o cache/firmware/firmware.zip '*system.img' -d work || true; fi
-          img="work/system-sign.img"; [ -s "$img" ] || img="work/system.img"
-          test -s "$img"
-          file "$img" | tee extracted/diagnostics/file.txt
-          stat -c 'size=%s bytes' "$img" | tee extracted/diagnostics/size.txt
-          xxd -l 256 "$img" | tee extracted/diagnostics/header.txt
-          binwalk "$img" > extracted/diagnostics/binwalk.txt 2>&1 || true
-          strings -a -n 8 "$img" | grep -Ei 'ext[234]|sparse|ANDROID|AVB|verity|filesystem|MTK|sign' | head -300 > extracted/diagnostics/signature-strings.txt || true
-      - name: Scan EXT4 candidates
+          if [ ! -s work/system-sign.img ]; then
+            unzip -j -o cache/firmware/firmware.zip '*system.img' -d work || true
+          fi
+          if [ -s work/system-sign.img ]; then
+            echo "work/system-sign.img" > work/image-path.txt
+          elif [ -s work/system.img ]; then
+            echo "work/system.img" > work/image-path.txt
+          else
+            echo "No system image found in firmware archive."
+            exit 1
+          fi
+
+      - name: Inspect image
         shell: bash
         run: |
           set -euo pipefail
-          img="work/system-sign.img"; [ -s "$img" ] || img="work/system.img"
-          python3 - "$img" > extracted/diagnostics/ext4-candidates.txt <<'PY'
-import sys, struct
-p = sys.argv[1]
-with open(p, 'rb') as f:
-    f.seek(0, 2); size = f.tell()
-    chunk = 16 * 1024 * 1024; base = 0; tail = b''
-    while base < size:
-        f.seek(base); data = f.read(min(chunk, size - base))
-        buf = tail + data; start = base - len(tail); pos = 0
-        while True:
-            i = buf.find(b'\x53\xef', pos)
-            if i < 0: break
-            magic_abs = start + i; fs_start = magic_abs - 1080
-            if fs_start >= 0 and fs_start + 2048 <= size:
-                f.seek(fs_start + 1024); sb = f.read(1024)
-                try:
-                    log_bs = struct.unpack_from('<I', sb, 24)[0]
-                    blocks = struct.unpack_from('<I', sb, 4)[0]
-                    rev = struct.unpack_from('<I', sb, 76)[0]
-                    compat = struct.unpack_from('<I', sb, 0x15c)[0]
-                    incompat = struct.unpack_from('<I', sb, 0x160)[0]
-                    bs = 1024 << log_bs if log_bs < 8 else 0
-                    if bs and blocks and blocks * bs <= size - fs_start:
-                        print('magic=0x%x fs_start=0x%x block_size=%d blocks=%d revision=%d compat=0x%x incompat=0x%x' % (magic_abs, fs_start, bs, blocks, rev, compat, incompat))
-                except struct.error:
-                    pass
-            pos = i + 2
-        tail = data[-4096:]; base += len(data)
-PY
-          cat extracted/diagnostics/ext4-candidates.txt || true
+          img=$(cat work/image-path.txt)
+          file "$img" > extracted/diagnostics/file.txt || true
+          stat -c 'size=%s bytes' "$img" > extracted/diagnostics/size.txt
+          xxd -l 256 "$img" > extracted/diagnostics/header.txt || true
+          command -v binwalk >/dev/null && binwalk "$img" > extracted/diagnostics/binwalk.txt 2>&1 || true
+          strings -a -n 8 "$img" | grep -Ei 'ext[234]|sparse|ANDROID|AVB|verity|filesystem|MTK|sign' | head -300 > extracted/diagnostics/signature-strings.txt || true
+
+      - name: Scan EXT4 magic locations
+        shell: bash
+        run: |
+          set -euo pipefail
+          img=$(cat work/image-path.txt)
+          python3 -c 'import sys; p=sys.argv[1]; f=open(p,"rb"); n=0; chunk=16*1024*1024; base=0; tail=b""; size=(f.seek(0,2) or f.tell()); f.seek(0)
+          while base < size:
+              data=f.read(min(chunk,size-base)); buf=tail+data; start=base-len(tail); pos=0
+              while True:
+                  i=buf.find(b"\x53\xef",pos)
+                  if i < 0: break
+                  print("candidate_magic_offset=0x%x" % (start+i)); n+=1; pos=i+2
+              tail=data[-4096:]; base+=len(data)
+          print("candidate_count=%d" % n)' "$img" > extracted/diagnostics/ext4-candidates.txt
+          cat extracted/diagnostics/ext4-candidates.txt
+
       - name: Upload diagnostics
         uses: actions/upload-artifact@v4
         with:
