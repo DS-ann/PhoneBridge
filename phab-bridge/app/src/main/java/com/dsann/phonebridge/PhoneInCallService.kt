@@ -25,7 +25,7 @@ class PhoneInCallService : InCallService() {
         val callback = object : Call.Callback() {
             override fun onStateChanged(changedCall: Call, state: Int) {
                 InCallController.publishState(state)
-                publishAudioDiagnostics("callState:$state")
+                publishAudioDiagnostics("callState:${stateName(state)}")
             }
         }
         callbacks[call] = callback
@@ -33,7 +33,7 @@ class PhoneInCallService : InCallService() {
         InCallController.setCall(call)
         InCallController.publishState(call.state)
         publishAudioState(callAudioState)
-        publishAudioDiagnostics("onCallAdded")
+        publishAudioDiagnostics("onCallAdded:${stateName(call.state)}")
         try {
             startActivity(Intent(this, InCallActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
         } catch (_: Throwable) { }
@@ -80,14 +80,7 @@ class PhoneInCallService : InCallService() {
 
     private fun publishAudioState(state: CallAudioState?) {
         if (state == null) return
-        val route = when (state.route) {
-            CallAudioState.ROUTE_EARPIECE -> "EARPIECE"
-            CallAudioState.ROUTE_SPEAKER -> "SPEAKER"
-            CallAudioState.ROUTE_BLUETOOTH -> "BLUETOOTH"
-            CallAudioState.ROUTE_WIRED_HEADSET -> "WIRED_HEADSET"
-            CallAudioState.ROUTE_WIRED_OR_EARPIECE -> "WIRED_OR_EARPIECE"
-            else -> "UNKNOWN(${state.route})"
-        }
+        val route = routeName(state.route)
         val supported = supportedRoutes(state.supportedRouteMask)
         getSharedPreferences(BridgeService.PREFS, MODE_PRIVATE).edit()
             .putString("audio_route", route)
@@ -101,13 +94,11 @@ class PhoneInCallService : InCallService() {
         } catch (_: Exception) { }
     }
 
-    /**
-     * API-23 diagnostic: records the Android AudioManager state at Telecom events.
-     * This is state-only; it does not capture or transmit call audio.
-     */
+    /** API-23 state-only diagnostic; no raw call audio is captured or transmitted. */
     private fun publishAudioDiagnostics(event: String) {
         try {
             val am = getSystemService(Context.AUDIO_SERVICE) as AudioManager
+            val telecom = callAudioState
             val modeName = when (am.mode) {
                 AudioManager.MODE_NORMAL -> "NORMAL"
                 AudioManager.MODE_RINGTONE -> "RINGTONE"
@@ -115,7 +106,10 @@ class PhoneInCallService : InCallService() {
                 AudioManager.MODE_IN_COMMUNICATION -> "IN_COMMUNICATION"
                 else -> "MODE_${am.mode}"
             }
-            val report = "event=$event;mode=$modeName(${am.mode});speaker=${am.isSpeakerphoneOn};micMute=${am.isMicrophoneMute};wired=${am.isWiredHeadsetOn};musicActive=${am.isMusicActive}"
+            val telecomRoute = if (telecom == null) "NONE" else routeName(telecom.route)
+            val supported = if (telecom == null) "NONE" else supportedRoutes(telecom.supportedRouteMask)
+            val callState = InCallController.getCall()?.state ?: Call.STATE_NEW
+            val report = "event=$event;callState=${stateName(callState)}($callState);telecomRoute=$telecomRoute;telecomSupported=$supported;telecomMuted=${telecom?.isMuted};mode=$modeName(${am.mode});speaker=${am.isSpeakerphoneOn};micMute=${am.isMicrophoneMute};wired=${am.isWiredHeadsetOn};musicActive=${am.isMusicActive}"
             getSharedPreferences(BridgeService.PREFS, MODE_PRIVATE).edit()
                 .putString("audio_call_diagnostics", report)
                 .apply()
@@ -125,9 +119,29 @@ class PhoneInCallService : InCallService() {
             })
         } catch (e: Throwable) {
             getSharedPreferences(BridgeService.PREFS, MODE_PRIVATE).edit()
-                .putString("audio_call_diagnostics", "ERROR:${e.javaClass.simpleName}")
+                .putString("audio_call_diagnostics", "ERROR:${e.javaClass.simpleName}:${e.message ?: ""}")
                 .apply()
         }
+    }
+
+    private fun routeName(route: Int): String = when (route) {
+        CallAudioState.ROUTE_EARPIECE -> "EARPIECE"
+        CallAudioState.ROUTE_SPEAKER -> "SPEAKER"
+        CallAudioState.ROUTE_BLUETOOTH -> "BLUETOOTH"
+        CallAudioState.ROUTE_WIRED_HEADSET -> "WIRED_HEADSET"
+        CallAudioState.ROUTE_WIRED_OR_EARPIECE -> "WIRED_OR_EARPIECE"
+        else -> "UNKNOWN($route)"
+    }
+
+    private fun stateName(state: Int): String = when (state) {
+        Call.STATE_NEW -> "NEW"
+        Call.STATE_RINGING -> "RINGING"
+        Call.STATE_DIALING -> "DIALING"
+        Call.STATE_ACTIVE -> "ACTIVE"
+        Call.STATE_HOLDING -> "HOLDING"
+        Call.STATE_DISCONNECTED -> "DISCONNECTED"
+        Call.STATE_CONNECTING -> "CONNECTING"
+        else -> "STATE_$state"
     }
 
     private fun supportedRoutes(mask: Int): String {
@@ -136,7 +150,7 @@ class PhoneInCallService : InCallService() {
         if ((mask and CallAudioState.ROUTE_SPEAKER) != 0) names.add("SPEAKER")
         if ((mask and CallAudioState.ROUTE_BLUETOOTH) != 0) names.add("BLUETOOTH")
         if ((mask and CallAudioState.ROUTE_WIRED_HEADSET) != 0) names.add("WIRED_HEADSET")
-        return names.joinToString(",")
+        return if (names.isEmpty()) "NONE" else names.joinToString(",")
     }
 }
 
