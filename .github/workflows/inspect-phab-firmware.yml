@@ -12,7 +12,7 @@ on:
 jobs:
   inspect:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 45
     steps:
       - name: Download firmware
         env:
@@ -27,16 +27,17 @@ jobs:
         run: |
           set -euo pipefail
           7z x -y work/firmware.zip -owork/package >/dev/null
-          find work/package -maxdepth 3 -type f -printf '%p %s bytes\n' | sort | head -200
+          find work/package -maxdepth 4 -type f -printf '%p %s bytes\n' | sort | tee report/package-files.txt
 
-      - name: Locate system image
+      - name: Locate signed system image
         run: |
           set -euo pipefail
-          SYSTEM_IMG="$(find work/package -type f -iname 'system.img' -print -quit)"
+          SYSTEM_IMG="$(find work/package -type f \( -iname 'system-sign.img' -o -iname 'system.img' \) -print -quit)"
           if [ -z "$SYSTEM_IMG" ]; then
-            echo 'system.img not found' >&2
+            echo 'No system-sign.img or system.img found' >&2
             exit 1
           fi
+          echo "Using system image: $SYSTEM_IMG" | tee report/system-image.txt
           cp "$SYSTEM_IMG" work/system.img
           ls -lh work/system.img
 
@@ -67,22 +68,23 @@ jobs:
             /etc/audio_policy_volumes.xml \
             /etc/mixer_paths.xml \
             /etc/mixer_paths_0.xml \
-            /etc/mixer_paths_tasha.xml \
             /etc/audio_effects.conf \
             /etc/audio_effects.xml; do
             base="$(basename "$f")"
             extract_if_present "$f" "extracted/etc/$base"
           done
-          for f in $(debugfs -R 'ls -p /etc' work/system.img 2>/dev/null | awk -F: '/mixer_paths.*(xml|conf)/ {print $2}' | sed 's/^ //'); do
+          while IFS= read -r f; do
             base="$(basename "$f")"
             [ -n "$base" ] && extract_if_present "/etc/$base" "extracted/etc/$base"
-          done
-          for f in $(debugfs -R 'ls -p /lib/hw' work/system.img 2>/dev/null | awk -F: '{print $2}' | sed 's/^ //'); do
-            case "$f" in *audio*.so|audio*.so) base="$(basename "$f")"; extract_if_present "/lib/hw/$base" "extracted/lib/hw/$base";; esac
-          done
-          for f in $(debugfs -R 'ls -p /lib64/hw' work/system.img 2>/dev/null | awk -F: '{print $2}' | sed 's/^ //'); do
-            case "$f" in *audio*.so|audio*.so) base="$(basename "$f")"; extract_if_present "/lib64/hw/$base" "extracted/lib64/hw/$base";; esac
-          done
+          done < <(debugfs -R 'ls -p /etc' work/system.img 2>/dev/null | sed -nE 's#^/etc/[^:]*:([^:]+):.*#\1#p' | grep -Ei 'mixer_paths.*\.(xml|conf)$' || true)
+          while IFS= read -r f; do
+            base="$(basename "$f")"
+            [ -n "$base" ] && extract_if_present "/lib/hw/$base" "extracted/lib/hw/$base"
+          done < <(debugfs -R 'ls -p /lib/hw' work/system.img 2>/dev/null | grep -oE 'audio[^: ]*\.so' || true)
+          while IFS= read -r f; do
+            base="$(basename "$f")"
+            [ -n "$base" ] && extract_if_present "/lib64/hw/$base" "extracted/lib64/hw/$base"
+          done < <(debugfs -R 'ls -p /lib64/hw' work/system.img 2>/dev/null | grep -oE 'audio[^: ]*\.so' || true)
           find extracted -type f -printf '%p %s bytes\n' | sort | tee report/extracted-files.txt
 
       - name: Search audio routing and telephony TX/RX definitions
