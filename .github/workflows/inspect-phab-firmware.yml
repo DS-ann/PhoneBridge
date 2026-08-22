@@ -96,40 +96,49 @@ jobs:
       - name: Inspect filesystem
         run: |
           set -euo pipefail
-          mkdir -p extracted
-          if ! e2fsck -fn work/system-ext4.img >report/e2fsck.txt 2>&1; then
-            echo 'EXT4 validation failed; filesystem extraction will be skipped.' | tee report/e2fsck-status.txt
-            cat report/e2fsck.txt
+          mkdir -p extracted/mnt
+          e2fsck -fn work/system-ext4.img >report/e2fsck.txt 2>&1 || true
+          if grep -q 'Filesystem revision too high' report/e2fsck.txt; then
+            echo 'e2fsck cannot validate this Android EXT4 revision; will use the Linux kernel read-only mount path.' | tee report/e2fsck-status.txt
+          elif grep -q 'Bad magic number' report/e2fsck.txt; then
+            echo 'EXT4 validation failed with bad magic; extraction skipped.' | tee report/e2fsck-status.txt
             exit 0
+          else
+            echo 'e2fsck inspection completed.' | tee report/e2fsck-status.txt
           fi
           dumpe2fs -h work/system-ext4.img 2>&1 | tee report/ext4-header.txt || true
-          debugfs -R 'ls -p /etc' work/system-ext4.img 2>&1 | tee report/etc-list.txt || true
-          debugfs -R 'ls -p /lib/hw' work/system-ext4.img 2>&1 | tee report/lib-hw-list.txt || true
-          debugfs -R 'ls -p /lib64/hw' work/system-ext4.img 2>&1 | tee report/lib64-hw-list.txt || true
+
+          # The Android image is only being read. The host kernel can support
+          # EXT4 features newer than the userspace e2fsprogs validator.
+          if sudo mount -o loop,ro,noload work/system-ext4.img extracted/mnt 2>report/mount.err; then
+            echo 'Kernel read-only EXT4 mount succeeded.' | tee report/mount-status.txt
+            find extracted/mnt/etc extracted/mnt/vendor/etc extracted/mnt/system/etc 2>/dev/null -maxdepth 2 -type f \( -name '*.xml' -o -name '*.conf' \) -printf '%p %s bytes\n' | sort | tee report/mounted-config-files.txt || true
+          else
+            echo 'Kernel read-only EXT4 mount failed.' | tee report/mount-status.txt
+            cat report/mount.err || true
+          fi
 
       - name: Extract audio configuration files
         run: |
           set -euo pipefail
-          mkdir -p extracted/etc extracted/lib/hw extracted/lib64/hw
-          if [ ! -s report/e2fsck.txt ] || ! grep -q 'clean' report/e2fsck.txt; then
-            echo 'Skipping file extraction because EXT4 validation did not succeed.' | tee report/extraction-skipped.txt
-            exit 0
+          mkdir -p extracted/etc extracted/vendor/etc extracted/system/etc extracted/lib/hw extracted/lib64/hw
+          if mountpoint -q extracted/mnt; then
+            for root in extracted/mnt/etc extracted/mnt/vendor/etc extracted/mnt/system/etc; do
+              [ -d "$root" ] || continue
+              find "$root" -maxdepth 2 -type f \( -iname '*audio*' -o -iname '*mixer*' -o -iname '*policy*' -o -iname '*route*' -o -iname '*voice*' \) -print0 2>/dev/null | while IFS= read -r -d '' f; do
+                rel="${f#extracted/mnt/}"
+                dst="extracted/$rel"
+                mkdir -p "$(dirname "$dst")"
+                cp -a "$f" "$dst"
+              done
+            done
+            find extracted/mnt -type f \( -iname '*audio*' -o -iname '*mixer*' -o -iname '*policy*' -o -iname '*route*' -o -iname '*voice*' \) -print0 2>/dev/null | while IFS= read -r -d '' f; do
+              rel="${f#extracted/mnt/}"
+              dst="extracted/$rel"
+              mkdir -p "$(dirname "$dst")"
+              cp -a "$f" "$dst" 2>/dev/null || true
+            done
           fi
-          extract_if_present() {
-            src="$1"; dst="$2"
-            if debugfs -R "stat $src" work/system-ext4.img 2>/dev/null | grep -q 'Inode:'; then
-              echo "Extracting $src"
-              debugfs -R "dump $src $dst" work/system-ext4.img >/dev/null 2>&1 || true
-            fi
-          }
-          for f in /etc/audio_policy.conf /etc/audio_policy_configuration.xml /etc/audio_policy_volumes.xml /etc/mixer_paths.xml /etc/mixer_paths_0.xml /etc/audio_effects.conf /etc/audio_effects.xml; do
-            base="$(basename "$f")"
-            extract_if_present "$f" "extracted/etc/$base"
-          done
-          debugfs -R 'ls -p /etc' work/system-ext4.img 2>/dev/null | grep -oE '/etc/[^:]+\.(xml|conf)$' | grep -Ei 'audio|mixer|policy|route|voice' | while IFS= read -r f; do
-            base="$(basename "$f")"
-            extract_if_present "$f" "extracted/etc/$base"
-          done || true
           find extracted -type f -printf '%p %s bytes\n' | sort | tee report/extracted-files.txt
 
       - name: Search audio routing and telephony definitions
@@ -137,6 +146,11 @@ jobs:
           set -euo pipefail
           grep -RniE 'TELEPHONY_TX|TELEPHONY_RX|VOICE_CALL|VOICE_UPLINK|VOICE_DOWNLINK|VOICE_COMMUNICATION|EARPIECE|SPEAKER|AUDIO_DEVICE_IN|AUDIO_DEVICE_OUT|telephony|voice' extracted 2>/dev/null | tee report/audio-routing-matches.txt || true
           find extracted -type f \( -name '*.so' -o -name '*.conf' -o -name '*.xml' \) -print0 | xargs -0 -r file | tee report/file-types.txt
+
+      - name: Unmount filesystem
+        if: always()
+        run: |
+          sudo umount extracted/mnt 2>/dev/null || true
 
       - name: Package results
         run: |
