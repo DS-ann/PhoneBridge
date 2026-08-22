@@ -20,6 +20,7 @@ class MainActivity : Activity() {
     private lateinit var status: TextView
     private lateinit var number: EditText
     private lateinit var probeResult: TextView
+    private lateinit var nativeProbeResult: TextView
     private lateinit var loopbackStatus: TextView
     private lateinit var callAudioDiagnostics: TextView
     private val handler = Handler(Looper.getMainLooper())
@@ -55,6 +56,7 @@ class MainActivity : Activity() {
         status = TextView(this).apply { text = "PhoneBridge\nStarting…"; textSize = 16f; gravity = Gravity.CENTER; setPadding(16, 16, 16, 16) }
         number = EditText(this).apply { hint = "Phone number"; inputType = android.text.InputType.TYPE_CLASS_PHONE; textSize = 22f; setSingleLine(true); gravity = Gravity.CENTER }
         probeResult = TextView(this).apply { text = "No audio probe has been run."; textSize = 12f; setPadding(8, 8, 8, 8) }
+        nativeProbeResult = TextView(this).apply { text = "Native HAL probe has not been run."; textSize = 12f; setPadding(8, 8, 8, 8) }
         loopbackStatus = TextView(this).apply { text = "Loopback: NOT_STARTED"; textSize = 14f; gravity = Gravity.CENTER; setPadding(8, 8, 8, 8) }
         callAudioDiagnostics = TextView(this).apply { text = "Call audio diagnostics:\nWaiting for an active Telecom call…"; textSize = 12f; setPadding(8, 8, 8, 8) }
 
@@ -83,6 +85,16 @@ class MainActivity : Activity() {
             text = "Run audio probe"
             setOnClickListener { probeResult.text = "Running…\nDo this while a cellular call is active for the most useful result."; AudioProbe.run(this@MainActivity) }
         }
+        val nativeProbe = Button(this).apply {
+            text = "Probe native audio HAL access"
+            setOnClickListener {
+                nativeProbeResult.text = "Running native HAL probe…\nNo audio is captured, played, or routed."
+                Thread {
+                    val result = NativeAudioProbe.run()
+                    runOnUiThread { nativeProbeResult.text = result }
+                }.start()
+            }
+        }
         val startLoopback = Button(this).apply {
             text = "Start communication loopback"
             setOnClickListener { if (!AudioProbe.startLoopback(this@MainActivity)) loopbackStatus.text = "Loopback: ALREADY_RUNNING" }
@@ -103,7 +115,8 @@ class MainActivity : Activity() {
             orientation = LinearLayout.VERTICAL; gravity = Gravity.CENTER; setPadding(12, 12, 12, 12)
             addView(status, LinearLayout.LayoutParams(-1, -2)); addView(number, LinearLayout.LayoutParams(-1, -2)); addView(dialPad, LinearLayout.LayoutParams(-1, -2)); addView(call, LinearLayout.LayoutParams(-1, -2))
             addView(earpiece, LinearLayout.LayoutParams(-1, -2)); addView(speaker, LinearLayout.LayoutParams(-1, -2)); addView(callAudioDiagnostics, LinearLayout.LayoutParams(-1, -2))
-            addView(probe, LinearLayout.LayoutParams(-1, -2)); addView(startLoopback, LinearLayout.LayoutParams(-1, -2)); addView(stopLoopback, LinearLayout.LayoutParams(-1, -2)); addView(loopbackStatus, LinearLayout.LayoutParams(-1, -2)); addView(clearProbe, LinearLayout.LayoutParams(-1, -2)); addView(probeResult, LinearLayout.LayoutParams(-1, -2)); addView(defaultDialer, LinearLayout.LayoutParams(-1, -2)); addView(start, LinearLayout.LayoutParams(-1, -2)); addView(stop, LinearLayout.LayoutParams(-1, -2))
+            addView(probe, LinearLayout.LayoutParams(-1, -2)); addView(nativeProbe, LinearLayout.LayoutParams(-1, -2)); addView(nativeProbeResult, LinearLayout.LayoutParams(-1, -2))
+            addView(startLoopback, LinearLayout.LayoutParams(-1, -2)); addView(stopLoopback, LinearLayout.LayoutParams(-1, -2)); addView(loopbackStatus, LinearLayout.LayoutParams(-1, -2)); addView(clearProbe, LinearLayout.LayoutParams(-1, -2)); addView(probeResult, LinearLayout.LayoutParams(-1, -2)); addView(defaultDialer, LinearLayout.LayoutParams(-1, -2)); addView(start, LinearLayout.LayoutParams(-1, -2)); addView(stop, LinearLayout.LayoutParams(-1, -2))
         }
         setContentView(ScrollView(this).apply { addView(content) })
         call.setOnClickListener { val n = number.text.toString().trim(); if (n.isNotEmpty()) startCellularCall(n) else status.text = "Enter a phone number" }
