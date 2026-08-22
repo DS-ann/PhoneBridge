@@ -34,7 +34,7 @@ struct hw_module_t_min {
     uint32_t reserved[32];
 };
 
-/* Android hw_device_t layout used by the Android 6-era HAL ABI. */
+/* Android 6-era hw_device_t layout. */
 struct hw_device_t_min {
     uint32_t tag;
     uint32_t version;
@@ -44,9 +44,7 @@ struct hw_device_t_min {
     uint32_t reserved2[4];
 };
 
-/* Only the beginning of audio_hw_device is inspected.  Calling init_check
- * is intentionally avoided because vendor implementations are not required
- * to be safe when invoked outside AudioFlinger. */
+/* Only the beginning of audio_hw_device is inspected. */
 struct audio_hw_device_probe_min {
     hw_device_t_min common;
     void *get_supported_devices;
@@ -154,14 +152,22 @@ Java_com_dsann_phonebridge_NativeAudioProbe_probeHal(JNIEnv *env, jclass) {
     out << "AUDIO_MODULE_OPEN_CALLBACK=AVAILABLE\n";
 
     /*
-     * This is the final non-invasive boundary test: actually ask the
-     * obtained vendor module to create its audio_hw_device.  No stream is
-     * opened and no routing/mixer operation is requested.  The returned
-     * device is immediately closed through its own common.close callback.
+     * The hardware-module open callback does NOT receive the module class
+     * name ("audio").  Android's audio HAL contract uses
+     * AUDIO_HARDWARE_INTERFACE, which is "audio_hw_if" on the Android 6
+     * interface used by this device.  Passing "audio" makes many vendor
+     * implementations return -EINVAL (-22) before creating the device.
+     *
+     * This remains a non-invasive probe: no stream and no routing operation
+     * is performed. If the device opens, it is immediately closed through
+     * its own common.close callback.
      */
+    static const char AUDIO_HARDWARE_INTERFACE[] = "audio_hw_if";
+
     hw_device_t_min *rawDevice = nullptr;
     out << "AUDIO_MODULE_OPEN_INVOKED=YES\n";
-    int openRc = module->methods->open(module, "audio", &rawDevice);
+    out << "AUDIO_MODULE_OPEN_ID=" << AUDIO_HARDWARE_INTERFACE << "\n";
+    int openRc = module->methods->open(module, AUDIO_HARDWARE_INTERFACE, &rawDevice);
     out << "AUDIO_HW_DEVICE_OPEN_RC=" << openRc << "\n";
 
     if (openRc != 0 || !rawDevice) {
@@ -184,6 +190,10 @@ Java_com_dsann_phonebridge_NativeAudioProbe_probeHal(JNIEnv *env, jclass) {
     out << "NATIVE_AUDIO_INIT_CHECK=NOT_RUN\n";
     out << "NATIVE_AUDIO_INPUT_STREAM_CALLBACK="
         << (audioDevice->open_input_stream ? "AVAILABLE" : "UNAVAILABLE") << "\n";
+    out << "NATIVE_AUDIO_OUTPUT_STREAM_CALLBACK="
+        << (audioDevice->open_output_stream ? "AVAILABLE" : "UNAVAILABLE") << "\n";
+    out << "NATIVE_AUDIO_SET_MODE_CALLBACK="
+        << (audioDevice->common.reserved[0] ? "UNKNOWN" : "UNKNOWN") << "\n";
 
     bool closeCalled = false;
     if (rawDevice->close) {
@@ -196,10 +206,11 @@ Java_com_dsann_phonebridge_NativeAudioProbe_probeHal(JNIEnv *env, jclass) {
     out << "NATIVE_AUDIO_HW_DEVICE_CLOSE_CALLED="
         << (closeCalled ? "YES" : "NO") << "\n";
 
-    /* No input stream is opened in this probe. Opening one would create a
-     * real HAL capture stream outside AudioFlinger and could interfere with
-     * the active call. We only establish whether the callback exists. */
+    /* Deliberately do not open a real capture/playback stream here. That
+     * must be done by AudioFlinger/AudioPolicy to avoid disturbing an active
+     * phone call. We only establish whether the callbacks exist. */
     out << "NATIVE_AUDIO_INPUT_STREAM_OPENED=NO\n";
+    out << "NATIVE_AUDIO_OUTPUT_STREAM_OPENED=NO\n";
     out << "NATIVE_AUDIO_ROUTING_CHANGED=NO\n";
 
     appendDlopenResult(out, "audio.primary.mt8783.so");
