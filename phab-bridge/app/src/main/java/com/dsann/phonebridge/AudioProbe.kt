@@ -41,45 +41,103 @@ object AudioProbe {
             )
             for ((name, source) in sources) lines += "SOURCE_$name:${probeSource(source)}"
             lines += "CALL_SOURCE_PROBE:END"
-
-            lines += "AUDIO_PORT_PATCH_PROBE:BEGIN"
-            lines += "ACTIVE_MODE:${am.mode}"
-            lines += "MODE_IN_CALL:${AudioManager.MODE_IN_CALL}"
-            try {
-                val ports = ArrayList<Any>()
-                val method = findAudioManagerMethod("listAudioPorts")
-                lines += "LIST_AUDIO_PORTS_API:${if (method != null) "AVAILABLE" else "UNAVAILABLE"}"
-                if (method != null) {
-                    lines += "LIST_AUDIO_PORTS_RC:${invokeListMethod(method, am, ports)}"
-                    lines += "AUDIO_PORT_COUNT:${ports.size}"
-                    for (i in ports.indices) appendPortSummary(lines, i, ports[i])
-                }
-            } catch (e: Throwable) {
-                lines += "AUDIO_PORT_ENUM_ERROR:${e.javaClass.simpleName}:${e.message ?: ""}"
-            }
-            try {
-                val patches = ArrayList<Any>()
-                val method = findAudioManagerMethod("listAudioPatches")
-                lines += "LIST_AUDIO_PATCHES_API:${if (method != null) "AVAILABLE" else "UNAVAILABLE"}"
-                if (method != null) {
-                    lines += "LIST_AUDIO_PATCHES_RC:${invokeListMethod(method, am, patches)}"
-                    lines += "AUDIO_PATCH_COUNT:${patches.size}"
-                    for (i in patches.indices) appendPatchSummary(lines, i, patches[i])
-                }
-            } catch (e: Throwable) {
-                lines += "AUDIO_PATCH_ENUM_ERROR:${e.javaClass.simpleName}:${e.message ?: ""}"
-            }
-            lines += "PROBE_CHANGED_ROUTING:NO"
-            lines += "AUDIO_PORT_PATCH_PROBE:END"
+            appendAudioPortPatchProbe(lines, am)
+            appendPrimaryInputCapabilityProbe(lines)
             prefs.edit().putString("audio_probe", lines.joinToString("\n")).apply()
         }
+    }
+
+    private fun appendPrimaryInputCapabilityProbe(lines: ArrayList<String>) {
+        lines += "PRIMARY_INPUT_CAPABILITY_PROBE:BEGIN"
+        lines += "TARGET_MIX_NAME:primary"
+        lines += "TARGET_MIX_ROLE:SINK"
+        lines += "TARGET_MIX_EXPECTED_RATE:8000"
+        lines += "TARGET_MIX_EXPECTED_CHANNEL_MASK:16"
+        lines += "TARGET_MIX_EXPECTED_FORMAT:2"
+        lines += "TARGET_PORT_ID_FROM_PATCH:82"
+        lines += "ROUTING_CHANGED:NO"
+        lines += "PATCH_MODIFIED:NO"
+        lines += "NOTE:API23 AudioRecord has no public API to select an AudioMixPort by ID; this test opens the framework input stream with the exact patch configuration and verifies initialization/readability only."
+        val sources = listOf(
+            "VOICE_COMMUNICATION" to MediaRecorder.AudioSource.VOICE_COMMUNICATION,
+            "VOICE_UPLINK" to MediaRecorder.AudioSource.VOICE_UPLINK,
+            "VOICE_CALL" to MediaRecorder.AudioSource.VOICE_CALL
+        )
+        for ((name, source) in sources) {
+            var record: AudioRecord? = null
+            try {
+                val min = AudioRecord.getMinBufferSize(8000, AudioFormat.CHANNEL_IN_MONO, AudioFormat.ENCODING_PCM_16BIT)
+                if (min <= 0) {
+                    lines += "INPUT_$name:MIN_BUFFER_UNAVAILABLE:$min"
+                    continue
+                }
+                record = AudioRecord(source, 8000, AudioFormat.CHANNEL_IN_MONO, AudioFormat.ENCODING_PCM_16BIT, maxOf(min * 2, 2048))
+                lines += "INPUT_$name_STATE:${record.state}"
+                lines += "INPUT_$name_SESSION:${record.audioSessionId}"
+                lines += "INPUT_$name_SAMPLE_RATE:8000"
+                lines += "INPUT_$name_CHANNEL_MASK:${AudioFormat.CHANNEL_IN_MONO}"
+                lines += "INPUT_$name_FORMAT:${AudioFormat.ENCODING_PCM_16BIT}"
+                if (record.state == AudioRecord.STATE_INITIALIZED) {
+                    try {
+                        record.startRecording()
+                        lines += "INPUT_$name_RECORDING_STATE:${record.recordingState}"
+                        val pcm = ShortArray(160)
+                        val read = record.read(pcm, 0, pcm.size)
+                        lines += "INPUT_$name_READ_RC:$read"
+                    } catch (e: SecurityException) {
+                        lines += "INPUT_$name_RUNTIME:SECURITY_EXCEPTION:${e.message ?: ""}"
+                    } catch (e: Throwable) {
+                        lines += "INPUT_$name_RUNTIME:${e.javaClass.simpleName}:${e.message ?: ""}"
+                    }
+                }
+            } catch (e: SecurityException) {
+                lines += "INPUT_$name_OPEN:SECURITY_EXCEPTION:${e.message ?: ""}"
+            } catch (e: Throwable) {
+                lines += "INPUT_$name_OPEN:${e.javaClass.simpleName}:${e.message ?: ""}"
+            } finally {
+                try { record?.stop() } catch (_: Throwable) {}
+                try { record?.release() } catch (_: Throwable) {}
+            }
+        }
+        lines += "PRIMARY_INPUT_CAPABILITY_PROBE:END"
+    }
+
+    private fun appendAudioPortPatchProbe(lines: ArrayList<String>, am: AudioManager) {
+        lines += "AUDIO_PORT_PATCH_PROBE:BEGIN"
+        lines += "ACTIVE_MODE:${am.mode}"
+        lines += "MODE_IN_CALL:${AudioManager.MODE_IN_CALL}"
+        try {
+            val ports = ArrayList<Any>()
+            val method = findAudioManagerMethod("listAudioPorts")
+            lines += "LIST_AUDIO_PORTS_API:${if (method != null) "AVAILABLE" else "UNAVAILABLE"}"
+            if (method != null) {
+                lines += "LIST_AUDIO_PORTS_RC:${invokeListMethod(method, am, ports)}"
+                lines += "AUDIO_PORT_COUNT:${ports.size}"
+                for (i in ports.indices) appendPortSummary(lines, i, ports[i])
+            }
+        } catch (e: Throwable) {
+            lines += "AUDIO_PORT_ENUM_ERROR:${e.javaClass.simpleName}:${e.message ?: ""}"
+        }
+        try {
+            val patches = ArrayList<Any>()
+            val method = findAudioManagerMethod("listAudioPatches")
+            lines += "LIST_AUDIO_PATCHES_API:${if (method != null) "AVAILABLE" else "UNAVAILABLE"}"
+            if (method != null) {
+                lines += "LIST_AUDIO_PATCHES_RC:${invokeListMethod(method, am, patches)}"
+                lines += "AUDIO_PATCH_COUNT:${patches.size}"
+                for (i in patches.indices) appendPatchSummary(lines, i, patches[i])
+            }
+        } catch (e: Throwable) {
+            lines += "AUDIO_PATCH_ENUM_ERROR:${e.javaClass.simpleName}:${e.message ?: ""}"
+        }
+        lines += "PROBE_CHANGED_ROUTING:NO"
+        lines += "AUDIO_PORT_PATCH_PROBE:END"
     }
 
     private fun findAudioManagerMethod(name: String): Method? = try {
         AudioManager::class.java.getDeclaredMethod(name, ArrayList::class.java).apply { isAccessible = true }
     } catch (_: Throwable) {
-        try { AudioManager::class.java.getMethod(name, ArrayList::class.java).apply { isAccessible = true } }
-        catch (_: Throwable) { null }
+        try { AudioManager::class.java.getMethod(name, ArrayList::class.java).apply { isAccessible = true } catch (_: Throwable) { null }
     }
 
     private fun invokeListMethod(method: Method, manager: AudioManager, list: ArrayList<Any>): Int = try {
@@ -132,7 +190,7 @@ object AudioProbe {
                 appendObjectMethod(lines, "${prefix}_FORMAT", cfg, "format")
                 appendNestedPortIdentity(lines, prefix, cfg)
             }
-        } catch (_: Throwable) { }
+        } catch (_: Throwable) {}
     }
 
     private fun appendNestedPortIdentity(lines: ArrayList<String>, prefix: String, config: Any) {
@@ -145,7 +203,7 @@ object AudioProbe {
             appendObjectMethod(lines, "${prefix}_PORT_TYPE_HEX", port, "type", true)
             appendObjectMethod(lines, "${prefix}_PORT_NAME", port, "name")
             appendObjectMethod(lines, "${prefix}_PORT_ADDRESS", port, "address")
-        } catch (_: Throwable) { }
+        } catch (_: Throwable) {}
     }
 
     private fun appendObjectMethod(lines: ArrayList<String>, key: String, obj: Any, methodName: String, hexInt: Boolean = false) {
@@ -153,7 +211,7 @@ object AudioProbe {
             val method = obj.javaClass.methods.firstOrNull { it.name == methodName && it.parameterTypes.isEmpty() } ?: return
             val value = method.invoke(obj) ?: return
             lines += "$key:${formatValue(value, hexInt)}"
-        } catch (_: Throwable) { }
+        } catch (_: Throwable) {}
     }
 
     private fun formatValue(value: Any, hexInt: Boolean = false): String {
@@ -185,10 +243,7 @@ object AudioProbe {
                 val bufferSize = maxOf(minIn, minOut, 2048)
                 recorder = AudioRecord(MediaRecorder.AudioSource.VOICE_COMMUNICATION, sampleRate, AudioFormat.CHANNEL_IN_MONO, AudioFormat.ENCODING_PCM_16BIT, bufferSize)
                 if (recorder.state != AudioRecord.STATE_INITIALIZED) throw IllegalStateException("VOICE_COMMUNICATION_RECORD_UNAVAILABLE")
-                track = if (Build.VERSION.SDK_INT >= 21) AudioTrack.Builder()
-                    .setAudioAttributes(AudioAttributes.Builder().setUsage(AudioAttributes.USAGE_VOICE_COMMUNICATION).setContentType(AudioAttributes.CONTENT_TYPE_SPEECH).build())
-                    .setAudioFormat(AudioFormat.Builder().setSampleRate(sampleRate).setEncoding(AudioFormat.ENCODING_PCM_16BIT).setChannelMask(AudioFormat.CHANNEL_OUT_MONO).build())
-                    .setBufferSizeInBytes(bufferSize).setTransferMode(AudioTrack.MODE_STREAM).build() else null
+                track = if (Build.VERSION.SDK_INT >= 21) AudioTrack.Builder().setAudioAttributes(AudioAttributes.Builder().setUsage(AudioAttributes.USAGE_VOICE_COMMUNICATION).setContentType(AudioAttributes.CONTENT_TYPE_SPEECH).build()).setAudioFormat(AudioFormat.Builder().setSampleRate(sampleRate).setEncoding(AudioFormat.ENCODING_PCM_16BIT).setChannelMask(AudioFormat.CHANNEL_OUT_MONO).build()).setBufferSizeInBytes(bufferSize).setTransferMode(AudioTrack.MODE_STREAM).build() else null
                 if (track == null || track.state != AudioTrack.STATE_INITIALIZED) throw IllegalStateException("VOICE_COMMUNICATION_OUTPUT_UNAVAILABLE")
                 am.mode = AudioManager.MODE_IN_COMMUNICATION
                 am.isSpeakerphoneOn = true
