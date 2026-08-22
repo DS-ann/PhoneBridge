@@ -45,11 +45,11 @@ jobs:
         run: |
           set -euo pipefail
           file work/system.img | tee report/image-file.txt
-          xxd -l 256 work/system.img | tee report/image-header.txt
+          xxd -l 512 work/system.img | tee report/image-header.txt
           echo '--- signatures ---' | tee -a report/image-file.txt
           binwalk work/system.img 2>&1 | tee report/binwalk.txt || true
 
-      - name: Try sparse conversion and locate filesystem
+      - name: Convert sparse image and locate real EXT4 start
         run: |
           set -euo pipefail
           if simg2img work/system.img work/system-unsparse.img 2>report/simg2img.err; then
@@ -59,33 +59,49 @@ jobs:
             echo 'Not an Android sparse image; using original image.' | tee report/unsparse.txt
             IMG=work/system.img
           fi
+          # EXT4: filesystem start + 1024 = superblock; magic 0xEF53 is +0x38 in superblock.
           python3 - "$IMG" <<'PY'
           import sys
-          p=sys.argv[1]
-          with open(p,'rb') as f: data=f.read(128*1024*1024)
-          hits=[]
-          pos=0
-          while True:
-              i=data.find(b'\x53\xef',pos)
-              if i<0: break
-              sb=i-0x38
-              if sb>=0 and sb%1024==0: hits.append(sb)
-              pos=i+1
-          print('EXT4 candidate superblock offsets:', hits[:20])
-          open('report/ext4-offsets.txt','w').write('\n'.join(map(str,hits)))
-          if hits: open('work/ext4-offset','w').write(str(hits[0]))
+          p=sys.argv[1]; magic=b'\x53\xef'; hits=[]
+          with open(p,'rb') as f:
+              pos=0; chunk_size=64*1024*1024; overlap=4096; previous=b''
+              while True:
+                  chunk=f.read(chunk_size)
+                  if not chunk: break
+                  data=previous+chunk; base=pos-len(previous); start=0
+                  while True:
+                      i=data.find(magic,start)
+                      if i < 0: break
+                      magic_offset=base+i
+                      fs_offset=magic_offset-0x38-1024
+                      if fs_offset >= 0 and fs_offset % 1024 == 0:
+                          hits.append((fs_offset,magic_offset))
+                      start=i+1
+                  pos += len(chunk); previous=chunk[-overlap:]
+          seen=set(); unique=[]
+          for h in hits:
+              if h[0] not in seen: seen.add(h[0]); unique.append(h)
+          print('EXT4 candidate filesystem offsets:', [x[0] for x in unique[:50]])
+          with open('report/ext4-offsets.txt','w') as out:
+              for fs_offset,magic_offset in unique:
+                  out.write(f'filesystem_offset={fs_offset} magic_offset={magic_offset}\n')
+          if unique: open('work/ext4-offset','w').write(str(unique[0][0]))
           PY
           OFFSET=0
           [ -s work/ext4-offset ] && OFFSET=$(cat work/ext4-offset)
           echo "Filesystem offset: $OFFSET" | tee report/filesystem-offset.txt
-          if [ "$OFFSET" = 0 ]; then cp "$IMG" work/system-ext4.img; else dd if="$IMG" of=work/system-ext4.img bs=1 skip="$OFFSET" status=none; fi
+          if [ "$OFFSET" = 0 ]; then cp "$IMG" work/system-ext4.img; else tail -c +$((OFFSET+1)) "$IMG" > work/system-ext4.img; fi
           file work/system-ext4.img | tee report/ext4-file.txt
 
       - name: Inspect filesystem
         run: |
           set -euo pipefail
           mkdir -p extracted
-          e2fsck -fn work/system-ext4.img 2>&1 | tee report/e2fsck.txt || true
+          if ! e2fsck -fn work/system-ext4.img >report/e2fsck.txt 2>&1; then
+            echo 'EXT4 validation failed; filesystem extraction will be skipped.' | tee report/e2fsck-status.txt
+            cat report/e2fsck.txt
+            exit 0
+          fi
           dumpe2fs -h work/system-ext4.img 2>&1 | tee report/ext4-header.txt || true
           debugfs -R 'ls -p /etc' work/system-ext4.img 2>&1 | tee report/etc-list.txt || true
           debugfs -R 'ls -p /lib/hw' work/system-ext4.img 2>&1 | tee report/lib-hw-list.txt || true
@@ -95,6 +111,10 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p extracted/etc extracted/lib/hw extracted/lib64/hw
+          if [ ! -s report/e2fsck.txt ] || ! grep -q 'clean' report/e2fsck.txt; then
+            echo 'Skipping file extraction because EXT4 validation did not succeed.' | tee report/extraction-skipped.txt
+            exit 0
+          fi
           extract_if_present() {
             src="$1"; dst="$2"
             if debugfs -R "stat $src" work/system-ext4.img 2>/dev/null | grep -q 'Inode:'; then
