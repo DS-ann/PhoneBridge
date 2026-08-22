@@ -7,10 +7,11 @@ on:
         description: Firmware ZIP URL
         required: true
         type: string
-        default: 'https://archive.org/download/PB2670MS000050171016ROW/PB2-670M_S000050_171016_ROW.zip'
+        default: "https://archive.org/download/PB2670MS000050171016ROW/PB2-670M_S000050_171016_ROW.zip"
 
 jobs:
   inspect:
+    name: Inspect
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -22,23 +23,23 @@ jobs:
           path: cache/firmware
           key: phab-firmware-cache-v1
 
-      - name: Prepare directories
+      - name: Prepare
         shell: bash
         run: |
           set -euo pipefail
           mkdir -p cache/firmware work extracted/diagnostics extracted/system
 
-      - name: Download firmware
+      - name: Download firmware if needed
         shell: bash
         env:
           FIRMWARE_URL: ${{ inputs.firmware_url }}
         run: |
           set -euo pipefail
-          archive=cache/firmware/firmware.zip
+          archive="cache/firmware/firmware.zip"
           if [ ! -s "$archive" ]; then
             curl -L --fail --retry 3 "$FIRMWARE_URL" -o "$archive"
           else
-            echo 'Using cached firmware.'
+            echo "Using cached firmware."
           fi
           ls -lh "$archive"
 
@@ -46,42 +47,42 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          rm -f work/system-sign.img work/system.img work/system-payload.img
+          rm -f work/system-sign.img work/system.img work/image-path.txt
           unzip -j -o cache/firmware/firmware.zip '*system-sign.img' -d work || true
-          if [ ! -s work/system-sign.img ]; then
-            unzip -j -o cache/firmware/firmware.zip '*system.img' -d work || true
-          fi
           if [ -s work/system-sign.img ]; then
-            printf '%s\n' work/system-sign.img > work/image-path.txt
-          elif [ -s work/system.img ]; then
-            printf '%s\n' work/system.img > work/image-path.txt
+            echo "work/system-sign.img" > work/image-path.txt
           else
-            echo 'No system image found.'
-            exit 1
+            unzip -j -o cache/firmware/firmware.zip '*system.img' -d work || true
+            if [ -s work/system.img ]; then
+              echo "work/system.img" > work/image-path.txt
+            else
+              echo "No system image found."
+              exit 1
+            fi
           fi
 
-      - name: Inspect and unwrap system image
+      - name: Inspect image
         shell: bash
         run: |
           set -euo pipefail
-          img=$(cat work/image-path.txt)
+          img="$(cat work/image-path.txt)"
           python3 scripts/inspect_phab_system_image.py "$img" work/system-payload.img extracted/diagnostics/bfbf-header.txt extracted/diagnostics/ext4-scan.txt
           file "$img" > extracted/diagnostics/file.txt || true
           stat -c 'size=%s bytes' "$img" > extracted/diagnostics/size.txt
           xxd -l 512 "$img" > extracted/diagnostics/header.txt || true
-          cat extracted/diagnostics/bfbf-header.txt
-          cat extracted/diagnostics/ext4-scan.txt
+          cat extracted/diagnostics/bfbf-header.txt || true
+          cat extracted/diagnostics/ext4-scan.txt || true
 
       - name: Extract validated filesystem
         shell: bash
         run: |
           set -euo pipefail
           if [ ! -s work/ext4-selection.txt ]; then
-            echo 'No validated EXT4 filesystem; skipping extraction.'
+            echo "No validated EXT4 filesystem; skipping extraction."
             exit 0
           fi
           read -r start bs blocks < work/ext4-selection.txt
-          img=$(cat work/image-path.txt)
+          img="$(cat work/image-path.txt)"
           bytes=$((bs * blocks))
           dd if="$img" of=work/system-ext4.img bs=1 skip="$start" count="$bytes" status=none
           for f in audio_policy.conf audio_policy_configuration.xml audio_effects.conf audio_platform_info.xml; do
