@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
     inputs:
       firmware_url:
-        description: Firmware ZIP URL
+        description: "Firmware ZIP URL"
         required: true
         type: string
         default: "https://archive.org/download/PB2670MS000050171016ROW/PB2-670M_S000050_171016_ROW.zip"
