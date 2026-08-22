@@ -118,10 +118,11 @@ object AudioProbe {
         try {
             val method = patch.javaClass.methods.firstOrNull { it.name == accessor && it.parameterTypes.isEmpty() } ?: return
             val value = method.invoke(patch) ?: return
-            val configs = value as? Array<*> ?: return
-            lines += "PATCH[$patchIndex]_${side}_COUNT:${configs.size}"
-            for (i in configs.indices) {
-                val cfg = configs[i] ?: continue
+            if (!value.javaClass.isArray) return
+            val configCount = Array.getLength(value)
+            lines += "PATCH[$patchIndex]_${side}_COUNT:$configCount"
+            for (i in 0 until configCount) {
+                val cfg = Array.get(value, i) ?: continue
                 val prefix = "PATCH[$patchIndex]_${side}[$i]"
                 lines += "${prefix}_CLASS:${cfg.javaClass.name}"
                 appendObjectMethod(lines, "${prefix}_PORT", cfg, "port")
