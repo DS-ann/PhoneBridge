@@ -8,6 +8,7 @@ import android.media.AudioRecord
 import android.media.AudioTrack
 import android.media.MediaRecorder
 import android.os.Build
+import java.lang.reflect.Array
 import java.lang.reflect.Method
 import java.util.concurrent.Executors
 import java.util.concurrent.Future
@@ -94,6 +95,7 @@ object AudioProbe {
         appendObjectMethod(lines, "PORT[$index]_NAME", port, "name")
         appendObjectMethod(lines, "PORT[$index]_ROLE", port, "role")
         appendObjectMethod(lines, "PORT[$index]_TYPE", port, "type")
+        appendObjectMethod(lines, "PORT[$index]_TYPE_HEX", port, "type", true)
         appendObjectMethod(lines, "PORT[$index]_HANDLE", port, "handle")
         appendObjectMethod(lines, "PORT[$index]_ADDRESS", port, "address")
         appendObjectMethod(lines, "PORT[$index]_FORMATS", port, "formats")
@@ -139,17 +141,29 @@ object AudioProbe {
             appendObjectMethod(lines, "${prefix}_PORT_ID", port, "id")
             appendObjectMethod(lines, "${prefix}_PORT_ROLE", port, "role")
             appendObjectMethod(lines, "${prefix}_PORT_TYPE", port, "type")
+            appendObjectMethod(lines, "${prefix}_PORT_TYPE_HEX", port, "type", true)
             appendObjectMethod(lines, "${prefix}_PORT_NAME", port, "name")
             appendObjectMethod(lines, "${prefix}_PORT_ADDRESS", port, "address")
         } catch (_: Throwable) { }
     }
 
-    private fun appendObjectMethod(lines: ArrayList<String>, key: String, obj: Any, methodName: String) {
+    private fun appendObjectMethod(lines: ArrayList<String>, key: String, obj: Any, methodName: String, hexInt: Boolean = false) {
         try {
             val method = obj.javaClass.methods.firstOrNull { it.name == methodName && it.parameterTypes.isEmpty() } ?: return
             val value = method.invoke(obj) ?: return
-            lines += "$key:$value"
+            lines += "$key:${formatValue(value, hexInt)}"
         } catch (_: Throwable) { }
+    }
+
+    private fun formatValue(value: Any, hexInt: Boolean = false): String {
+        if (value.javaClass.isArray) {
+            val n = Array.getLength(value)
+            val out = ArrayList<String>(n)
+            for (i in 0 until n) out += formatValue(Array.get(value, i), false)
+            return "[${out.joinToString(",")}]"
+        }
+        if (hexInt && value is Number) return "${value} (0x${value.toLong().and(0xffffffffL).toString(16)})"
+        return value.toString()
     }
 
     @Synchronized fun startLoopback(context: Context): Boolean {
