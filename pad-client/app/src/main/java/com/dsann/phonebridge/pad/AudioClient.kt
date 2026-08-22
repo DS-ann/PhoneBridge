@@ -23,6 +23,8 @@ object AudioClient {
     private val rxFrames = AtomicLong(0)
     private var socket: DatagramSocket? = null
 
+    fun isRunning(): Boolean = running.get()
+
     @Synchronized fun start(context: Context, phabAddress: InetAddress): Int {
         if (running.get()) return -1
         val localPort = findPort()
@@ -69,8 +71,6 @@ object AudioClient {
             try {
                 val min = AudioTrack.getMinBufferSize(SAMPLE_RATE, AudioFormat.CHANNEL_OUT_MONO, AudioFormat.ENCODING_PCM_16BIT)
                 if (min <= 0) throw IllegalStateException("AUDIO_OUTPUT_UNAVAILABLE")
-                // Use normal media output on the Pad. STREAM_VOICE_CALL can be routed to
-                // an earpiece/communication path and may be inaudible on some tablets.
                 track = AudioTrack(AudioManager.STREAM_MUSIC, SAMPLE_RATE, AudioFormat.CHANNEL_OUT_MONO, AudioFormat.ENCODING_PCM_16BIT, maxOf(min, FRAME_BYTES * 8), AudioTrack.MODE_STREAM)
                 if (track.state != AudioTrack.STATE_INITIALIZED) throw IllegalStateException("AUDIO_OUTPUT_NOT_INITIALIZED")
                 track.setStereoVolume(1.0f, 1.0f)
