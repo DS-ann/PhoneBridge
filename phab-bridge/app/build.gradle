@@ -13,12 +13,21 @@ android {
         targetSdk 28
         versionCode 1
         versionName '0.1.0'
+
+        externalNativeBuild {
+            cmake {
+                cppFlags '-std=c++11'
+            }
+        }
+    }
+
+    externalNativeBuild {
+        cmake {
+            path file('src/main/cpp/CMakeLists.txt')
+        }
     }
 }
 
-// Kotlin compiler options belong in the Kotlin plugin's configuration.
-// The previous top-level kotlinOptions{} block is not recognized by the
-// Android Gradle plugin/Kotlin plugin combination used by this project.
 kotlin {
     jvmToolchain(8)
 }
