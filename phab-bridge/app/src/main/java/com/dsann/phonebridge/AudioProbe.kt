@@ -14,7 +14,7 @@ import java.util.concurrent.Executors
 import java.util.concurrent.Future
 import java.util.concurrent.atomic.AtomicBoolean
 
-/** Diagnostic only. Never stores or transmits captured audio. */
+/** Diagnostics only. Does not create or modify AudioPatches. */
 object AudioProbe {
     private val executor = Executors.newSingleThreadExecutor()
     private var loopbackTask: Future<*>? = null
@@ -57,7 +57,7 @@ object AudioProbe {
         lines += "TARGET_PORT_ID_FROM_PATCH:82"
         lines += "ROUTING_CHANGED:NO"
         lines += "PATCH_MODIFIED:NO"
-        lines += "NOTE:API23 AudioRecord has no public API to select an AudioMixPort by ID; this test opens the framework input stream with the exact patch configuration and verifies initialization/readability only."
+        lines += "DIRECT_MIX_PORT_SELECTION:UNAVAILABLE_ON_PUBLIC_API23"
         val sources = listOf(
             "VOICE_COMMUNICATION" to MediaRecorder.AudioSource.VOICE_COMMUNICATION,
             "VOICE_UPLINK" to MediaRecorder.AudioSource.VOICE_UPLINK,
@@ -68,32 +68,31 @@ object AudioProbe {
             try {
                 val min = AudioRecord.getMinBufferSize(8000, AudioFormat.CHANNEL_IN_MONO, AudioFormat.ENCODING_PCM_16BIT)
                 if (min <= 0) {
-                    lines += "INPUT_$name:MIN_BUFFER_UNAVAILABLE:$min"
+                    lines += "INPUT_${name}_MIN_BUFFER:$min"
                     continue
                 }
                 record = AudioRecord(source, 8000, AudioFormat.CHANNEL_IN_MONO, AudioFormat.ENCODING_PCM_16BIT, maxOf(min * 2, 2048))
-                lines += "INPUT_$name_STATE:${record.state}"
-                lines += "INPUT_$name_SESSION:${record.audioSessionId}"
-                lines += "INPUT_$name_SAMPLE_RATE:8000"
-                lines += "INPUT_$name_CHANNEL_MASK:${AudioFormat.CHANNEL_IN_MONO}"
-                lines += "INPUT_$name_FORMAT:${AudioFormat.ENCODING_PCM_16BIT}"
+                lines += "INPUT_${name}_STATE:${record.state}"
+                lines += "INPUT_${name}_SESSION:${record.audioSessionId}"
+                lines += "INPUT_${name}_SAMPLE_RATE:8000"
+                lines += "INPUT_${name}_CHANNEL_MASK:${AudioFormat.CHANNEL_IN_MONO}"
+                lines += "INPUT_${name}_FORMAT:${AudioFormat.ENCODING_PCM_16BIT}"
                 if (record.state == AudioRecord.STATE_INITIALIZED) {
                     try {
                         record.startRecording()
-                        lines += "INPUT_$name_RECORDING_STATE:${record.recordingState}"
+                        lines += "INPUT_${name}_RECORDING_STATE:${record.recordingState}"
                         val pcm = ShortArray(160)
-                        val read = record.read(pcm, 0, pcm.size)
-                        lines += "INPUT_$name_READ_RC:$read"
+                        lines += "INPUT_${name}_READ_RC:${record.read(pcm, 0, pcm.size)}"
                     } catch (e: SecurityException) {
-                        lines += "INPUT_$name_RUNTIME:SECURITY_EXCEPTION:${e.message ?: ""}"
+                        lines += "INPUT_${name}_RUNTIME:SECURITY_EXCEPTION:${e.message ?: ""}"
                     } catch (e: Throwable) {
-                        lines += "INPUT_$name_RUNTIME:${e.javaClass.simpleName}:${e.message ?: ""}"
+                        lines += "INPUT_${name}_RUNTIME:${e.javaClass.simpleName}:${e.message ?: ""}"
                     }
                 }
             } catch (e: SecurityException) {
-                lines += "INPUT_$name_OPEN:SECURITY_EXCEPTION:${e.message ?: ""}"
+                lines += "INPUT_${name}_OPEN:SECURITY_EXCEPTION:${e.message ?: ""}"
             } catch (e: Throwable) {
-                lines += "INPUT_$name_OPEN:${e.javaClass.simpleName}:${e.message ?: ""}"
+                lines += "INPUT_${name}_OPEN:${e.javaClass.simpleName}:${e.message ?: ""}"
             } finally {
                 try { record?.stop() } catch (_: Throwable) {}
                 try { record?.release() } catch (_: Throwable) {}
@@ -115,9 +114,7 @@ object AudioProbe {
                 lines += "AUDIO_PORT_COUNT:${ports.size}"
                 for (i in ports.indices) appendPortSummary(lines, i, ports[i])
             }
-        } catch (e: Throwable) {
-            lines += "AUDIO_PORT_ENUM_ERROR:${e.javaClass.simpleName}:${e.message ?: ""}"
-        }
+        } catch (e: Throwable) { lines += "AUDIO_PORT_ENUM_ERROR:${e.javaClass.simpleName}:${e.message ?: ""}" }
         try {
             val patches = ArrayList<Any>()
             val method = findAudioManagerMethod("listAudioPatches")
@@ -127,23 +124,23 @@ object AudioProbe {
                 lines += "AUDIO_PATCH_COUNT:${patches.size}"
                 for (i in patches.indices) appendPatchSummary(lines, i, patches[i])
             }
-        } catch (e: Throwable) {
-            lines += "AUDIO_PATCH_ENUM_ERROR:${e.javaClass.simpleName}:${e.message ?: ""}"
-        }
+        } catch (e: Throwable) { lines += "AUDIO_PATCH_ENUM_ERROR:${e.javaClass.simpleName}:${e.message ?: ""}" }
         lines += "PROBE_CHANGED_ROUTING:NO"
         lines += "AUDIO_PORT_PATCH_PROBE:END"
     }
 
-    private fun findAudioManagerMethod(name: String): Method? = try {
-        AudioManager::class.java.getDeclaredMethod(name, ArrayList::class.java).apply { isAccessible = true }
-    } catch (_: Throwable) {
-        try { AudioManager::class.java.getMethod(name, ArrayList::class.java).apply { isAccessible = true } catch (_: Throwable) { null }
+    private fun findAudioManagerMethod(name: String): Method? {
+        return try {
+            AudioManager::class.java.getDeclaredMethod(name, ArrayList::class.java).apply { isAccessible = true }
+        } catch (_: Throwable) {
+            try { AudioManager::class.java.getMethod(name, ArrayList::class.java).apply { isAccessible = true } }
+            catch (_: Throwable) { null }
+        }
     }
 
-    private fun invokeListMethod(method: Method, manager: AudioManager, list: ArrayList<Any>): Int = try {
-        (method.invoke(manager, list) as Number).toInt()
-    } catch (_: IllegalArgumentException) {
-        (method.invoke(null, list) as Number).toInt()
+    private fun invokeListMethod(method: Method, manager: AudioManager, list: ArrayList<Any>): Int {
+        return try { (method.invoke(manager, list) as Number).toInt() }
+        catch (_: Throwable) { -1 }
     }
 
     private fun appendPortSummary(lines: ArrayList<String>, index: Int, port: Any?) {
@@ -154,7 +151,6 @@ object AudioProbe {
         appendObjectMethod(lines, "PORT[$index]_ROLE", port, "role")
         appendObjectMethod(lines, "PORT[$index]_TYPE", port, "type")
         appendObjectMethod(lines, "PORT[$index]_TYPE_HEX", port, "type", true)
-        appendObjectMethod(lines, "PORT[$index]_HANDLE", port, "handle")
         appendObjectMethod(lines, "PORT[$index]_ADDRESS", port, "address")
         appendObjectMethod(lines, "PORT[$index]_FORMATS", port, "formats")
         appendObjectMethod(lines, "PORT[$index]_SAMPLING_RATES", port, "samplingRates")
@@ -165,7 +161,6 @@ object AudioProbe {
     private fun appendPatchSummary(lines: ArrayList<String>, index: Int, patch: Any?) {
         if (patch == null) { lines += "PATCH[$index]=NULL"; return }
         lines += "PATCH[$index]_CLASS:${patch.javaClass.name}"
-        appendObjectMethod(lines, "PATCH[$index]_HANDLE", patch, "handle")
         appendObjectMethod(lines, "PATCH[$index]_SOURCES", patch, "sources")
         appendObjectMethod(lines, "PATCH[$index]_SINKS", patch, "sinks")
         appendPatchConfigDetails(lines, index, "SOURCES", patch, "sources")
@@ -177,16 +172,15 @@ object AudioProbe {
             val method = patch.javaClass.methods.firstOrNull { it.name == accessor && it.parameterTypes.isEmpty() } ?: return
             val value = method.invoke(patch) ?: return
             if (!value.javaClass.isArray) return
-            val configCount = Array.getLength(value)
-            lines += "PATCH[$patchIndex]_${side}_COUNT:$configCount"
-            for (i in 0 until configCount) {
+            val count = Array.getLength(value)
+            lines += "PATCH[$patchIndex]_${side}_COUNT:$count"
+            for (i in 0 until count) {
                 val cfg = Array.get(value, i) ?: continue
                 val prefix = "PATCH[$patchIndex]_${side}[$i]"
                 lines += "${prefix}_CLASS:${cfg.javaClass.name}"
                 appendObjectMethod(lines, "${prefix}_PORT", cfg, "port")
                 appendObjectMethod(lines, "${prefix}_SAMPLING_RATE", cfg, "samplingRate")
                 appendObjectMethod(lines, "${prefix}_CHANNEL_MASK", cfg, "channelMask")
-                appendObjectMethod(lines, "${prefix}_CHANNEL_INDEX_MASK", cfg, "channelIndexMask")
                 appendObjectMethod(lines, "${prefix}_FORMAT", cfg, "format")
                 appendNestedPortIdentity(lines, prefix, cfg)
             }
@@ -221,8 +215,7 @@ object AudioProbe {
             for (i in 0 until n) out += formatValue(Array.get(value, i), false)
             return "[${out.joinToString(",")}]"
         }
-        if (hexInt && value is Number) return "${value} (0x${value.toLong().and(0xffffffffL).toString(16)})"
-        return value.toString()
+        return if (hexInt && value is Number) "${value} (0x${value.toLong().and(0xffffffffL).toString(16)})" else value.toString()
     }
 
     @Synchronized fun startLoopback(context: Context): Boolean {
@@ -236,21 +229,21 @@ object AudioProbe {
             val oldMode = am.mode
             val oldSpeaker = am.isSpeakerphoneOn
             try {
-                val sampleRate = 8000
-                val minIn = AudioRecord.getMinBufferSize(sampleRate, AudioFormat.CHANNEL_IN_MONO, AudioFormat.ENCODING_PCM_16BIT)
-                val minOut = AudioTrack.getMinBufferSize(sampleRate, AudioFormat.CHANNEL_OUT_MONO, AudioFormat.ENCODING_PCM_16BIT)
-                if (minIn <= 0 || minOut <= 0) throw IllegalStateException("AUDIO_BUFFER_UNAVAILABLE")
-                val bufferSize = maxOf(minIn, minOut, 2048)
-                recorder = AudioRecord(MediaRecorder.AudioSource.VOICE_COMMUNICATION, sampleRate, AudioFormat.CHANNEL_IN_MONO, AudioFormat.ENCODING_PCM_16BIT, bufferSize)
+                val rate = 8000
+                val inMin = AudioRecord.getMinBufferSize(rate, AudioFormat.CHANNEL_IN_MONO, AudioFormat.ENCODING_PCM_16BIT)
+                val outMin = AudioTrack.getMinBufferSize(rate, AudioFormat.CHANNEL_OUT_MONO, AudioFormat.ENCODING_PCM_16BIT)
+                if (inMin <= 0 || outMin <= 0) throw IllegalStateException("AUDIO_BUFFER_UNAVAILABLE")
+                val size = maxOf(inMin, outMin, 2048)
+                recorder = AudioRecord(MediaRecorder.AudioSource.VOICE_COMMUNICATION, rate, AudioFormat.CHANNEL_IN_MONO, AudioFormat.ENCODING_PCM_16BIT, size)
                 if (recorder.state != AudioRecord.STATE_INITIALIZED) throw IllegalStateException("VOICE_COMMUNICATION_RECORD_UNAVAILABLE")
-                track = if (Build.VERSION.SDK_INT >= 21) AudioTrack.Builder().setAudioAttributes(AudioAttributes.Builder().setUsage(AudioAttributes.USAGE_VOICE_COMMUNICATION).setContentType(AudioAttributes.CONTENT_TYPE_SPEECH).build()).setAudioFormat(AudioFormat.Builder().setSampleRate(sampleRate).setEncoding(AudioFormat.ENCODING_PCM_16BIT).setChannelMask(AudioFormat.CHANNEL_OUT_MONO).build()).setBufferSizeInBytes(bufferSize).setTransferMode(AudioTrack.MODE_STREAM).build() else null
-                if (track == null || track.state != AudioTrack.STATE_INITIALIZED) throw IllegalStateException("VOICE_COMMUNICATION_OUTPUT_UNAVAILABLE")
+                if (Build.VERSION.SDK_INT >= 21) track = AudioTrack.Builder().setAudioAttributes(AudioAttributes.Builder().setUsage(AudioAttributes.USAGE_VOICE_COMMUNICATION).setContentType(AudioAttributes.CONTENT_TYPE_SPEECH).build()).setAudioFormat(AudioFormat.Builder().setSampleRate(rate).setEncoding(AudioFormat.ENCODING_PCM_16BIT).setChannelMask(AudioFormat.CHANNEL_OUT_MONO).build()).setBufferSizeInBytes(size).setTransferMode(AudioTrack.MODE_STREAM).build()
+                if (track == null || track!!.state != AudioTrack.STATE_INITIALIZED) throw IllegalStateException("VOICE_COMMUNICATION_OUTPUT_UNAVAILABLE")
                 am.mode = AudioManager.MODE_IN_COMMUNICATION
                 am.isSpeakerphoneOn = true
-                recorder.startRecording(); track.play()
+                recorder.startRecording(); track!!.play()
                 prefs.edit().putString("audio_loopback", "RUNNING").apply()
                 val pcm = ShortArray(1024)
-                while (loopbackRunning.get()) { val n = recorder.read(pcm, 0, pcm.size); if (n > 0) track.write(pcm, 0, n) }
+                while (loopbackRunning.get()) { val n = recorder.read(pcm, 0, pcm.size); if (n > 0) track!!.write(pcm, 0, n) }
                 prefs.edit().putString("audio_loopback", "STOPPED").apply()
             } catch (e: Throwable) { prefs.edit().putString("audio_loopback", "ERROR:${e.javaClass.simpleName}:${e.message ?: ""}").apply() }
             finally {
