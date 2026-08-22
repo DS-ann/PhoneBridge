@@ -1,4 +1,4 @@
-name: Inspect Phab firmware
+name: Phab Firmware Audio Inspector
 
 on:
   workflow_dispatch:
@@ -6,7 +6,6 @@ on:
       firmware_url:
         description: Firmware ZIP URL
         required: true
-        type: string
         default: https://archive.org/download/PB2670MS000050171016ROW/PB2-670M_S000050_171016_ROW.zip
 
 jobs:
@@ -14,7 +13,6 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-
       - name: Cache firmware and extracted working files
         uses: actions/cache@v4
         with:
@@ -24,10 +22,8 @@ jobs:
           key: phab-firmware-${{ hashFiles('.github/workflows/inspect-phab-firmware.yml') }}
           restore-keys: |
             phab-firmware-
-
       - name: Prepare cache directories
         run: mkdir -p cache/firmware cache/extracted work extracted
-
       - name: Download firmware only when not cached
         env:
           FIRMWARE_URL: ${{ inputs.firmware_url }}
@@ -35,92 +31,61 @@ jobs:
           set -euo pipefail
           archive="cache/firmware/firmware.zip"
           if [ ! -s "$archive" ]; then
-            echo "Downloading firmware..."
             curl -L --fail --retry 3 --retry-delay 2 "$FIRMWARE_URL" -o "$archive"
           else
             echo "Using cached firmware: $archive"
           fi
           unzip -l "$archive" | grep -E 'system-sign\.img|system\.img' | head -20 || true
-
-      - name: Reuse cached extraction or inspect image structure
+      - name: Inspect image structure
         run: |
           set -euo pipefail
-          if [ -s cache/extracted/system-sign.img ]; then
-            echo "Using cached system-sign.img"
-            cp -f cache/extracted/system-sign.img work/system-sign.img
-          else
-            unzip -j -o cache/firmware/firmware.zip '*system-sign.img' -d work || true
-            if [ ! -s work/system-sign.img ]; then
-              unzip -j -o cache/firmware/firmware.zip '*system.img' -d work || true
-            fi
-            test -s work/system-sign.img -o -s work/system.img
-            img="work/system-sign.img"
-            [ -s "$img" ] || img="work/system.img"
-            cp -f "$img" cache/extracted/system-sign.img
-          fi
-
-          img="work/system-sign.img"
-          [ -s "$img" ] || img="work/system.img"
-          echo "Image: $img"
-          stat -c 'size=%s bytes' "$img"
-          file "$img" || true
-          xxd -l 256 "$img" || true
-
-      - name: Scan image for Android filesystem/container signatures
-        run: |
-          set -euo pipefail
-          img="work/system-sign.img"
-          [ -s "$img" ] || img="work/system.img"
+          unzip -j -o cache/firmware/firmware.zip '*system-sign.img' -d work || true
+          if [ ! -s work/system-sign.img ]; then unzip -j -o cache/firmware/firmware.zip '*system.img' -d work || true; fi
+          img="work/system-sign.img"; [ -s "$img" ] || img="work/system.img"
+          test -s "$img"
           mkdir -p extracted/diagnostics
-          file "$img" > extracted/diagnostics/file.txt || true
+          file "$img" | tee extracted/diagnostics/file.txt
+          stat -c 'size=%s bytes' "$img" | tee extracted/diagnostics/size.txt
+          xxd -l 256 "$img" | tee extracted/diagnostics/header.txt
           binwalk "$img" > extracted/diagnostics/binwalk.txt 2>&1 || true
           strings -a -n 8 "$img" | grep -Ei 'ext[234]|sparse|ANDROID|AVB|verity|filesystem|MTK|sign' | head -300 > extracted/diagnostics/signature-strings.txt || true
+      - name: Scan for EXT4 superblock candidates
+        run: |
+          set -euo pipefail
+          img="work/system-sign.img"; [ -s "$img" ] || img="work/system.img"
           python3 - "$img" > extracted/diagnostics/ext4-candidates.txt <<'PY'
-import sys, struct
+import sys,struct
 p=sys.argv[1]
 with open(p,'rb') as f:
     f.seek(0,2); size=f.tell()
-    off=0; found=0
-    while off + 2048 <= size:
-        f.seek(off + 1024 + 56)
-        if f.read(2) == b'\x53\xef':
-            f.seek(off + 1024); sb=f.read(1024)
-            if len(sb)==1024:
-                rev=struct.unpack_from('<I',sb,76)[0]
-                log_bs=struct.unpack_from('<I',sb,24)[0]
-                blocks_lo=struct.unpack_from('<I',sb,4)[0]
-                blocks_hi=struct.unpack_from('<I',sb,0x150)[0]
-                incompat=struct.unpack_from('<I',sb,0x160)[0]
-                compat=struct.unpack_from('<I',sb,0x15c)[0]
-                uuid=sb[104:120].hex()
-                bs=1024 << log_bs if log_bs < 8 else 0
-                total=blocks_lo | (blocks_hi << 32)
-                fs_bytes=total*bs if bs else 0
-                if bs and bs <= 65536 and total and fs_bytes <= size-off:
-                    print(f'offset=0x{off:x} superblock=0x{off+1024:x} block_size={bs} blocks={total} fs_bytes={fs_bytes} revision={rev} compat=0x{compat:x} incompat=0x{incompat:x} uuid={uuid}')
-                    found += 1
-                    if found >= 100: break
-        off += 4096
+    # Search byte-wise rather than assuming a 4 KiB filesystem alignment.
+    chunk=16*1024*1024; base=0; overlap=2048
+    tail=b''
+    while base<size:
+        f.seek(base); data=f.read(min(chunk,size-base))
+        buf=tail+data; start=base-len(tail)
+        pos=0
+        while True:
+            i=buf.find(b'\x53\xef',pos)
+            if i<0: break
+            sb_abs=start+i-56-1024
+            if sb_abs>=0 and sb_abs+2048<=size:
+                f.seek(sb_abs+1024); sb=f.read(1024)
+                try:
+                    log_bs=struct.unpack_from('<I',sb,24)[0]
+                    blocks_lo=struct.unpack_from('<I',sb,4)[0]
+                    rev=struct.unpack_from('<I',sb,76)[0]
+                    compat=struct.unpack_from('<I',sb,0x15c)[0]
+                    incompat=struct.unpack_from('<I',sb,0x160)[0]
+                    bs=1024<<log_bs if log_bs<8 else 0
+                    if bs and blocks_lo:
+                        print(f'magic=0x{sb_abs+1080:x} fs_start=0x{sb_abs:x} block_size={bs} blocks_lo={blocks_lo} revision={rev} compat=0x{compat:x} incompat=0x{incompat:x}')
+                except struct.error: pass
+            pos=i+2
+        tail=data[-overlap:]
+        base += len(data)
 PY
           cat extracted/diagnostics/ext4-candidates.txt || true
-
-      - name: Reuse cached extracted filesystem
-        run: |
-          set -euo pipefail
-          mkdir -p extracted/audio
-          if [ -d cache/extracted/system ]; then
-            echo "Using cached extracted filesystem"
-            cp -a cache/extracted/system/. extracted/audio/ || true
-          else
-            echo "No filesystem extraction cached yet; diagnostics retained."
-          fi
-
-      - name: Cache useful results
-        run: |
-          set -euo pipefail
-          mkdir -p cache/extracted/diagnostics
-          cp -a extracted/diagnostics/. cache/extracted/diagnostics/ || true
-
       - name: Upload inspection artifact
         uses: actions/upload-artifact@v4
         with:
