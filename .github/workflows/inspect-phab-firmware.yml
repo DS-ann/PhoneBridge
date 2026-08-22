@@ -59,7 +59,6 @@ jobs:
             echo 'Not an Android sparse image; using original image.' | tee report/unsparse.txt
             IMG=work/system.img
           fi
-          # EXT4: filesystem start + 1024 = superblock; magic 0xEF53 is +0x38 in superblock.
           python3 - "$IMG" <<'PY'
           import sys
           p=sys.argv[1]; magic=b'\x53\xef'; hits=[]
@@ -93,28 +92,49 @@ jobs:
           if [ "$OFFSET" = 0 ]; then cp "$IMG" work/system-ext4.img; else tail -c +$((OFFSET+1)) "$IMG" > work/system-ext4.img; fi
           file work/system-ext4.img | tee report/ext4-file.txt
 
-      - name: Inspect filesystem
+      - name: Inspect and extract filesystem
         run: |
           set -euo pipefail
-          mkdir -p extracted/mnt
+          mkdir -p extracted/mnt extracted/userspace
           e2fsck -fn work/system-ext4.img >report/e2fsck.txt 2>&1 || true
+          dumpe2fs -h work/system-ext4.img >report/ext4-header.txt 2>&1 || true
+
+          # First try the normal EXT4 tools. Android images can advertise
+          # filesystem features newer than the runner's e2fsprogs, so failure
+          # here is informational rather than fatal.
           if grep -q 'Filesystem revision too high' report/e2fsck.txt; then
-            echo 'e2fsck cannot validate this Android EXT4 revision; will use the Linux kernel read-only mount path.' | tee report/e2fsck-status.txt
+            echo 'e2fsck cannot validate this Android EXT4 revision; trying userspace extraction.' | tee report/e2fsck-status.txt
           elif grep -q 'Bad magic number' report/e2fsck.txt; then
-            echo 'EXT4 validation failed with bad magic; extraction skipped.' | tee report/e2fsck-status.txt
-            exit 0
+            echo 'EXT4 validation reported bad magic; trying userspace extraction anyway.' | tee report/e2fsck-status.txt
           else
             echo 'e2fsck inspection completed.' | tee report/e2fsck-status.txt
           fi
-          dumpe2fs -h work/system-ext4.img 2>&1 | tee report/ext4-header.txt || true
 
-          # The Android image is only being read. The host kernel can support
-          # EXT4 features newer than the userspace e2fsprogs validator.
-          if sudo mount -o loop,ro,noload work/system-ext4.img extracted/mnt 2>report/mount.err; then
-            echo 'Kernel read-only EXT4 mount succeeded.' | tee report/mount-status.txt
-            find extracted/mnt/etc extracted/mnt/vendor/etc extracted/mnt/system/etc 2>/dev/null -maxdepth 2 -type f \( -name '*.xml' -o -name '*.conf' \) -printf '%p %s bytes\n' | sort | tee report/mounted-config-files.txt || true
+          # 7-Zip has an EXT filesystem reader and does not require the host
+          # kernel to understand the Android journal/features. Use it first.
+          if 7z l work/system-ext4.img >report/7z-list.txt 2>report/7z-list.err; then
+            echo '7-Zip can read the EXT image; using userspace extraction.' | tee report/extraction-status.txt
+            7z l -slt work/system-ext4.img >report/7z-list-slt.txt 2>&1 || true
+            7z x -y work/system-ext4.img -oextracted/userspace \
+              '*/etc/*audio*' '*/etc/*mixer*' '*/etc/*policy*' '*/etc/*route*' '*/etc/*voice*' \
+              '*/vendor/etc/*audio*' '*/vendor/etc/*mixer*' '*/vendor/etc/*policy*' '*/vendor/etc/*route*' '*/vendor/etc/*voice*' \
+              '*/system/etc/*audio*' '*/system/etc/*mixer*' '*/system/etc/*policy*' '*/system/etc/*route*' '*/system/etc/*voice*' \
+              '*/lib/hw/audio*' '*/lib64/hw/audio*' \
+              >report/7z-extract.txt 2>&1 || true
           else
-            echo 'Kernel read-only EXT4 mount failed.' | tee report/mount-status.txt
+            echo '7-Zip could not read the EXT image; trying debugfs fallback.' | tee report/extraction-status.txt
+            cat report/7z-list.err || true
+            debugfs -n -c -R 'ls -l /etc' work/system-ext4.img >report/debugfs-etc.txt 2>&1 || true
+            debugfs -n -c -R 'ls -l /vendor/etc' work/system-ext4.img >report/debugfs-vendor-etc.txt 2>&1 || true
+            debugfs -n -c -R 'ls -l /system/etc' work/system-ext4.img >report/debugfs-system-etc.txt 2>&1 || true
+          fi
+
+          # Keep the kernel mount only as an additional fallback. It is not
+          # required for the workflow to succeed.
+          if sudo mount -o loop,ro,noload work/system-ext4.img extracted/mnt 2>report/mount.err; then
+            echo 'Kernel read-only EXT4 mount succeeded.' | tee -a report/extraction-status.txt
+          else
+            echo 'Kernel read-only EXT4 mount unavailable; continuing with userspace results.' | tee -a report/extraction-status.txt
             cat report/mount.err || true
           fi
 
@@ -122,16 +142,18 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p extracted/etc extracted/vendor/etc extracted/system/etc extracted/lib/hw extracted/lib64/hw
-          if mountpoint -q extracted/mnt; then
-            for root in extracted/mnt/etc extracted/mnt/vendor/etc extracted/mnt/system/etc; do
-              [ -d "$root" ] || continue
-              find "$root" -maxdepth 2 -type f \( -iname '*audio*' -o -iname '*mixer*' -o -iname '*policy*' -o -iname '*route*' -o -iname '*voice*' \) -print0 2>/dev/null | while IFS= read -r -d '' f; do
-                rel="${f#extracted/mnt/}"
-                dst="extracted/$rel"
-                mkdir -p "$(dirname "$dst")"
-                cp -a "$f" "$dst"
-              done
+
+          # Copy files found by the userspace extractor into predictable paths.
+          if [ -d extracted/userspace ]; then
+            find extracted/userspace -type f -print0 2>/dev/null | while IFS= read -r -d '' f; do
+              rel="${f#extracted/userspace/}"
+              dst="extracted/$rel"
+              mkdir -p "$(dirname "$dst")"
+              cp -a "$f" "$dst" 2>/dev/null || true
             done
+          fi
+
+          if mountpoint -q extracted/mnt; then
             find extracted/mnt -type f \( -iname '*audio*' -o -iname '*mixer*' -o -iname '*policy*' -o -iname '*route*' -o -iname '*voice*' \) -print0 2>/dev/null | while IFS= read -r -d '' f; do
               rel="${f#extracted/mnt/}"
               dst="extracted/$rel"
@@ -139,6 +161,7 @@ jobs:
               cp -a "$f" "$dst" 2>/dev/null || true
             done
           fi
+
           find extracted -type f -printf '%p %s bytes\n' | sort | tee report/extracted-files.txt
 
       - name: Search audio routing and telephony definitions
