@@ -1,10 +1,9 @@
 #ifndef _AUDIO_BTCVSD_CONTROL_H_
 #define _AUDIO_BTCVSD_CONTROL_H_
 
-//#ifdef SW_BTCVSD_ENABLE
-#define BT_SW_CVSD  //Enable SW BT CVSD
 #define EXT_MODEM_BT_CVSD
 #define EXTMD_SUPPORT_WB
+
 //#define EXTMD_LOOPBACK_TEST
 
 //#define BTCVSD_LOOPBACK_WITH_CODEC
@@ -14,24 +13,21 @@
 
 //#define TXOUT_RXIN_TEST
 //#define BTCVSD_TEST_HW_ONLY
-//#endif
-
-//#ifdef BT_SW_CVSD
 
 #include "AudioType.h"
 #include "AudioBTCVSDDef.h"
-#include "AudioIoctl.h"
 #include "AudioUtility.h"
 
-//#ifdef EXT_MODEM_BT_CVSD
-#include "AudioDigitalControlFactory.h"
-#include "AudioResourceManager.h"
-//#ifdef EXTMD_LOOPBACK_TEST
-#include "AudioAnalogControlFactory.h"
-#include "AudioAfeReg.h"
-#include "AudioDigitalType.h"
-//#endif
-//#endif
+#ifdef EXT_MODEM_BT_CVSD
+//#include "AudioDigitalControlFactory.h"
+//#include "AudioResourceManager.h"
+
+#ifdef EXTMD_LOOPBACK_TEST
+//#include "AudioAnalogControlFactory.h"
+//#include "AudioAfeReg.h"
+//#include "AudioDigitalType.h"
+#endif
+#endif
 
 extern "C" {
 #include "MtkAudioSrc.h"
@@ -56,7 +52,7 @@ enum BT_SCO_STATE {
     BT_SCO_TXSTATE_DIRECT_LOOPBACK
 } ;
 
-//#ifdef EXT_MODEM_BT_CVSD
+#ifdef EXT_MODEM_BT_CVSD
 #define EXTMD_BTSCO_AFE_SAMPLERATE (8000)
 
 enum EXTMD_BTSCO_THREAD_TYPE
@@ -72,7 +68,7 @@ enum EXTMD_BTSCO_DIRECTION
     ExtMD_BTSCO_UL = 0x0,
     ExtMD_BTSCO_DL,
 } ;
-//#endif
+#endif
 
 
 class BT_SCO_TX
@@ -108,9 +104,9 @@ class BT_SCO_RX
         //temp buffer
         uint8_t     PcmBuf_64k[SCO_RX_PCM64K_BUF_SIZE];
         uint8_t     PcmBuf_8k[SCO_RX_PCM8K_BUF_SIZE];
-//#ifdef EXT_MODEM_BT_CVSD
+#ifdef EXT_MODEM_BT_CVSD
         uint8_t     PcmBuf_8k_accu[BTSCO_CVSD_RX_INBUF_SIZE * 2 * 2];
-//#endif
+#endif
         uint32_t    uPcmBuf_r; //for PcmBuf_8k
         uint16_t    uSampleRate;
         uint8_t     uChannelNumber;
@@ -198,6 +194,9 @@ class AudioBTCVSDControl
 
         static AudioBTCVSDControl *getInstance();
         static void freeInstance();
+
+        int getFd();
+
         void BT_SCO_CVSD_Init(void);
         void BT_SCO_CVSD_DeInit(void);
         void BT_SCO_SET_TXState(BT_SCO_STATE state);
@@ -231,12 +230,13 @@ class AudioBTCVSDControl
         void BT_SCO_TX_SetCVSDOutBuf(uint8_t *addr);
         uint8_t *BT_SCO_TX_GetCVSDOutBuf(void);
         uint8_t *BT_SCO_TX_GetCVSDWorkBuf(void);
-        void BTCVSD_Init(int mFd2, uint32 mSourceSampleRate, uint32 mSourceChannels);
+
+        void BTCVSD_Init(int mFd2, uint32_t mSourceSampleRate, uint32_t mSourceChannels);
         void BTCVSD_StandbyProcess(int mFd2);
-//#if defined(BTCVSD_ENC_DEC_LOOPBACK)
+#if defined(BTCVSD_ENC_DEC_LOOPBACK)
         void BTCVSD_Test_UserSpace_TxToRx(uint32_t total_outsize);
-//#endif
-//#ifdef EXT_MODEM_BT_CVSD
+#endif
+#ifdef EXT_MODEM_BT_CVSD
         void AudioExtMDCVSDCreateThread(void);
         void AudioExtMDCVSDDeleteThread(void);
         bool BT_SCO_ExtMDULBufLock(void);
@@ -256,7 +256,7 @@ class AudioBTCVSDControl
         void BT_SCO_ExtMD_ULBuf_Close(void);
         void BT_SCO_ExtMD_DLBuf_Open(void);
         void BT_SCO_ExtMD_DLBuf_Close(void);
-//#endif
+#endif
         static BTSCO_CVSD_Context *mBTSCOCVSDContext;  //btsco
 
         void btsco_process_RX_MSBC(void *inbuf, uint32_t *insize, void *outbuf, uint32_t *outsize, void *workbuf, const uint32_t workbufsize, uint8_t packetvalid);
@@ -268,13 +268,16 @@ class AudioBTCVSDControl
 
         AudioBTCVSDControl();
         ~AudioBTCVSDControl();
+
+        int mFd2;
+
         uint32_t BT_SCO_GetMemorySize_4ByteAlign(BT_SCO_MODULE uModule);
         void BT_SCO_InitialModule(BT_SCO_MODULE uModule, uint8_t *pBuf);
         static AudioBTCVSDControl *UniqueAudioBTCVSDControl;
         uint8_t *mBTCVSDRXTempInBuf;
         uint8_t *mBTCVSDRXInBuf;
         uint8_t *mBTCVSDTXOutBuf;
-//#ifdef EXT_MODEM_BT_CVSD
+#ifdef EXT_MODEM_BT_CVSD
         uint8_t *mExtMDbtscoULBuf;
         uint8_t *mExtMDbtscoULWTmpBuf;
         uint8_t *mExtMDbtscoULWTmpBuf2;
@@ -283,25 +286,25 @@ class AudioBTCVSDControl
         Mutex mLockDL;
         RingBuf mULRingBuf;
         RingBuf mDLRingBuf;
-        AudioDigitalControlInterface *mAudioDigitalControl;
-//#endif
+        //AudioDigitalControlInterface *mAudioDigitalControl;
+#endif
         FILE *mTXSRCPCMDumpFile;
         FILE *mBTCVSDRXDumpFile;
 
         uint32_t Audio_IIRHPF_GetBufferSize(int a);
         void *Audio_IIRHPF_Init(int8_t *pBuf, const int32_t *btsco_FilterCoeff_8K, int a);
         void Audio_IIRHPF_Process(void *handle, uint16_t *inbuf, uint16_t *InSample, uint16_t *outbuf, uint16_t *OutSample);
-        bool BTmode;
+        BT_SCO_MODE BTmode;
         void btsco_AllocMemory_TX_CVSD(void);
         void btsco_AllocMemory_TX_MSBC(void);
         void btsco_AllocMemory_RX_CVSD(void);
         void btsco_AllocMemory_RX_MSBC(void);
 
-//#ifdef EXT_MODEM_BT_CVSD
+#ifdef EXT_MODEM_BT_CVSD
         class AudioExtMDCVSDThread : public Thread
         {
             public:
-                AudioExtMDCVSDThread(EXTMD_BTSCO_THREAD_TYPE Thread_type, char *RingBuffer, uint32 BufferSize);
+                AudioExtMDCVSDThread(EXTMD_BTSCO_THREAD_TYPE Thread_type, char *RingBuffer, uint32_t BufferSize);
                 virtual ~AudioExtMDCVSDThread();
                 virtual status_t    readyToRun();
                 virtual void        onFirstRef();
@@ -319,10 +322,10 @@ class AudioBTCVSDControl
                 String8 mName;
                 virtual bool threadLoop();
                 char *mRingBuffer;
-                uint32 mBufferSize;
+                uint32_t mBufferSize;
                 //AudioMTKStreamInManager *mManager;
                 unsigned char tempdata;
-                uint32 mRecordDropms;
+                uint32_t mRecordDropms;
 
                 bool mAFEDLStarting;
                 bool mAFEULStarting;
@@ -334,17 +337,19 @@ class AudioBTCVSDControl
                 FILE *mExtMDDLReadPCMDumpFile;
                 FILE *mExtMDDLWritePCMDumpFile;
 
-                AudioDigitalControlInterface *mAudioDigitalControl;
                 AudioBTCVSDControl *mAudioBTCVSDControl;
-                AudioResourceManagerInterface *mAudioResourceManager;
-//#ifndef EXTMD_SUPPORT_WB
-                MtkAudioSrc *pULSRCHandle;
-//#endif
 
-//#ifdef EXTMD_LOOPBACK_TEST
-                AudioAnalogControlInterface *mAudioAnalogControl;
-                AudioAfeReg *mAfeReg;
-//#endif
+                //AudioDigitalControlInterface *mAudioDigitalControl;
+                //AudioResourceManagerInterface *mAudioResourceManager;
+
+#ifndef EXTMD_SUPPORT_WB
+                MtkAudioSrc *pULSRCHandle;
+#endif
+
+#ifdef EXTMD_LOOPBACK_TEST
+                //AudioAnalogControlInterface *mAudioAnalogControl;
+                //AudioAfeReg *mAfeReg;
+#endif
         };
 
         bool mExtMDBTSCORunning;
@@ -354,12 +359,12 @@ class AudioBTCVSDControl
         sp<AudioExtMDCVSDThread>  mExtMDCVSDULThread2;
         sp<AudioExtMDCVSDThread>  mExtMDCVSDDLThread1;
         sp<AudioExtMDCVSDThread>  mExtMDCVSDDLThread2;
-//#endif
+#endif
 
         class AudioBTCVSDLoopbackRxThread : public Thread
         {
             public:
-                AudioBTCVSDLoopbackRxThread(void *mAudioManager, uint32 Mem_type, char *mRingBuffer, uint32 mBufferSize);
+                AudioBTCVSDLoopbackRxThread(void *mAudioManager, uint32_t Mem_type, char *mRingBuffer, uint32_t mBufferSize);
                 virtual ~AudioBTCVSDLoopbackRxThread();
                 // Good place to do one-time initializations
                 virtual status_t   readyToRun();
@@ -376,20 +381,20 @@ class AudioBTCVSDControl
                 String8 mName;
                 virtual bool threadLoop();
                 char *mRingBuffer;
-                uint32 mBufferSize;
+                uint32_t mBufferSize;
                 unsigned char tempdata;
-                uint32 mRecordDropms;
+                uint32_t mRecordDropms;
                 FILE *mBTCVSDLoopbackDumpFile;
                 AudioBTCVSDControl *mAudioBTCVSDControl;
         };
 
         AudioBTCVSDControl *mAudioBTCVSDControl;
-//#if defined(BTCVSD_ENC_DEC_LOOPBACK) || defined(BTCVSD_KERNEL_LOOPBACK)
+#if defined(BTCVSD_ENC_DEC_LOOPBACK) || defined(BTCVSD_KERNEL_LOOPBACK)
         FILE *mCVSDloopbackPCMDumpFile;
-//#endif
+#endif
         sp<AudioBTCVSDLoopbackRxThread>  mBTCVSDRxTestThread;
 };
 }
-//#endif
+
 
 #endif

@@ -1,5 +1,5 @@
-#ifndef ANDROID_SPEECH_MESSENGER_CCCI_H
-#define ANDROID_SPEECH_MESSENGER_CCCI_H
+#ifndef ANDROID_SPEECH_MESSENGER_EVDO_H
+#define ANDROID_SPEECH_MESSENGER_EVDO_H
 
 #include <pthread.h>
 
@@ -10,32 +10,44 @@
 #include "SpeechBGSPlayer.h"
 #include "SpeechPcm2way.h"
 #include "SpeechMessengerInterface.h"
-#define SPEECH_PCM_VM_SUPPORT
+
 
 namespace android
 {
+#define EVDO_MAX_PAYLOAD_SIZE 4000 //A2M/M2A share memory=16k
+/** EVDO buffer structure */
+typedef struct
+{
+    uint32_t magic;
+    uint32_t message; // message[31:16] = id, message[15:0] = parameters
+    uint32_t channel;
+    uint32_t reserved;
+    uint32_t payload[EVDO_MAX_PAYLOAD_SIZE];
+} evdo_buff_t;
 
 class SpeechDriverLAD;
 
-class SpeechMessengerCCCI : public SpeechMessengerInterface
+class SpeechMessengerEVDO : public SpeechMessengerInterface
 {
     public:
-        SpeechMessengerCCCI(modem_index_t modem_index, SpeechDriverLAD *pLad);
-        virtual ~SpeechMessengerCCCI();
+        SpeechMessengerEVDO(modem_index_t modem_index, SpeechDriverLAD *pLad);
+        virtual ~SpeechMessengerEVDO();
 
         virtual status_t    Initial();
         virtual status_t    Deinitial();
-        virtual bool                A2MBufLock();
-        virtual void                A2MBufUnLock();
+
+        virtual bool        A2MBufLock();
+        virtual void        A2MBufUnLock();
 
         virtual status_t    WaitUntilModemReady();
 
         virtual ccci_buff_t InitCcciMailbox(uint16_t id, uint16_t param_16bit, uint32_t param_32bit);
         virtual status_t    SendMessageInQueue(ccci_buff_t ccci_buff);
 
-        virtual uint16_t            GetM2AShareBufSyncWord(const ccci_buff_t &ccci_buff);
-        virtual uint16_t            GetM2AShareBufDataType(const ccci_buff_t &ccci_buff);
-        virtual uint16_t            GetM2AShareBufDataLength(const ccci_buff_t &ccci_buff);
+
+        virtual uint16_t    GetM2AShareBufSyncWord(const ccci_buff_t &ccci_buff);
+        virtual uint16_t    GetM2AShareBufDataType(const ccci_buff_t &ccci_buff);
+        virtual uint16_t    GetM2AShareBufDataLength(const ccci_buff_t &ccci_buff);
 
         /**
          * get modem side modem function status
@@ -65,6 +77,8 @@ class SpeechMessengerCCCI : public SpeechMessengerInterface
         virtual status_t        SetPcmRecordType(record_type_t type_record);
 
     protected:
+        SpeechMessengerEVDO() {}
+
         virtual char        GetModemCurrentStatus();
 
         virtual uint16_t    GetMessageID(const ccci_buff_t &ccci_buff);
@@ -73,7 +87,6 @@ class SpeechMessengerCCCI : public SpeechMessengerInterface
         virtual uint16_t    GetMessageLength(const ccci_buff_t &ccci_buff);
         virtual uint16_t    GetMessageOffset(const ccci_buff_t &ccci_buff);
         virtual bool        CheckOffsetAndLength(const ccci_buff_t &ccci_buff);
-        virtual uint16_t    GetPcmFreq(const uint16_t Idx_Freq);
 
         virtual ccci_message_ack_t JudgeAckOfMsg(const uint16_t message_id);
 
@@ -83,15 +96,17 @@ class SpeechMessengerCCCI : public SpeechMessengerInterface
         virtual status_t    ReadMessage(ccci_buff_t &ccci_buff);
         virtual void                SendMsgFailErrorHandling(const ccci_buff_t &ccci_buff);
 
+        virtual uint16_t    GetPcmFreq(const uint16_t Idx_Freq);
         virtual RingBuf     GetM2AUplinkRingBuffer(const ccci_buff_t &ccci_buff);
-        virtual RingBuf     GetM2ACtmRingBuffer(const ccci_buff_t &ccci_buff);
         virtual RingBuf     GetM2ARawPcmRingBuffer(const ccci_buff_t &ccci_buff);
 
         virtual status_t    CreateReadingThread();
         virtual status_t    CreateSendSphParaThread();
 
-        static void        *CCCIReadThread(void *arg);
+        static void        *EVDOReadThread(void *arg);
         static void        *SendSphParaThread(void *arg);
+        static void        *OpenMuxdDeviceThread(void *arg);
+
 
         // for message queue
         virtual uint32_t    GetQueueCount() const;
@@ -113,18 +128,29 @@ class SpeechMessengerCCCI : public SpeechMessengerInterface
         virtual bool SpeechParamLock();
         virtual void SpeechParamUnLock();
 
-        virtual void GetRFInfo(void);
-        virtual void SetRFInfo(char mRFIdx, uint16_t mRfData);
-        virtual void ResetRFInfo(void);
+
+        /**
+         * set/reset AP side modem function status
+         */
+        virtual char        *GetEvdoDeviceName();
+        virtual void        OpenMuxdDeviceUntilReady();
+
 
 
         modem_index_t mModemIndex;
         SpeechDriverLAD *mLad;
         bool CCCIEnable;
 
-        // file handle for CCCI user space interface
-        int32_t fHdlRead;
-        int32_t fHdlWrite;
+        // file handle for ECCCI user space interface
+        int32_t fHdl;
+        AudioLock mfHdlLock;
+
+        // share buffer base and len
+        uint32_t mA2MShareBufLen;
+        uint32_t mM2AShareBufLen;
+
+        char    *mECCCIShareBuf;
+        char    *mM2AShareBufRead;
 
         ccci_queue_element_t pQueue[CCCI_MAX_QUEUE_NUM];
         int32_t iQRead;
@@ -144,16 +170,20 @@ class SpeechMessengerCCCI : public SpeechMessengerInterface
 
         pthread_t hReadThread;
         pthread_t hSendSphThread;
+        pthread_t hOpenMuxdDeviceThread;
+
+        char      mModemStatus;
+        AudioLock mGetModemCurrentStatusLock;
 
         bool mIsModemResetDuringPhoneCall;
         bool mIsModemReset;
         bool mIsModemEPOF; // 1=MD power off
         record_type_t mPcmRecordType;
-        char* mSphCCCITmpBuf;
-
-        SpeechMessengerCCCI() {}
+        bool mCreatingSphThreadFlag;
+        bool mWaitSphThreadFlag;
 };
 
 } // end namespace android
 
-#endif // end of ANDROID_SPEECH_MESSAGE_CCCI_H
+#endif
+

@@ -6,6 +6,8 @@
 #include "AudioType.h"
 #include "SpeechType.h"
 
+#include "AudioVolumeInterface.h"
+
 namespace android
 {
 
@@ -45,7 +47,7 @@ enum loopback_output_device_t
 };
 
 
-class AudioALSAVolumeController;
+//class AudioVolumeInterface;
 
 class LoopbackManager
 {
@@ -89,7 +91,7 @@ class LoopbackManager
         }
 
 
-        AudioALSAVolumeController *mAudioALSAVolumeController;
+        AudioVolumeInterface *mAudioALSAVolumeController;
 
         Mutex mLock;
 

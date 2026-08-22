@@ -111,7 +111,6 @@ extern "C" {
 */
 //#define VPW_Buffer_Count (2)
 #define forUT
-
 //VPW stream In read once size
 #define VOICE_UNLOCK_RING_BUFFER_SIZE (16384*2) //140ms 48k 2ch data length
 // I2S buffer size
@@ -211,7 +210,9 @@ class AudioVUnlockDL
         static void  freeInstance();
 
         int32_t GetSRCInputParameter(uint32_t inSR,                  /* Input, input sampling rate of the conversion */
-                                     uint32_t inChannel             /* Input, input channel number of the conversion */);
+                                     uint32_t inChannel,             /* Input, input channel number of the conversion */
+                                     audio_format_t format
+                                     );
         int32_t  SetSRC(uint32_t outSR,                 /* Input, output sampling rate of the conversion */
                         uint32_t outChannel            /* Input, output channel number of the conversion */);
         /*DoSRC : return data consumed.*/
@@ -226,10 +227,11 @@ class AudioVUnlockDL
         void GetStreamOutLatency(int32_t latency);
         bool StreamOutStandBy();
         int GetShareMemory(int *fd, int *size, uint *flags);
+        int32_t SetUplinkStartTime(struct timespec uplinkStartTime, int clear);
         int32_t SetUplinkStartTime(struct timespec uplinkStartTime);
         int32_t SetDownlinkStartTime(int remainMs);
         int32_t  GetVoiceUnlockULTime(void *ULtime);
-        int32 GetFirstDLTime();
+        int32_t GetFirstDLTime();
 #ifdef forUT
         bool StateStartwrite(void);
         bool startWrite(void);
@@ -276,6 +278,9 @@ class AudioVUnlockDL
         uint32_t   mSampleCount_Dump;
         struct timespec mULtime;
         bool mNeedBlock;
+        uint32_t mFormat;
+        int32_t* mTempBuf;
+        int32_t mTempBufsz;
 };
 
 

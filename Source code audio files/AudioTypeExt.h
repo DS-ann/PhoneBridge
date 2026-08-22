@@ -13,5 +13,6 @@ const audio_source_t AUDIO_SOURCE_ANC = (audio_source_t)97;
 const audio_source_t AUDIO_SOURCE_MATV = (audio_source_t)98;
 const audio_devices_t AUDIO_DEVICE_IN_SPK_FEED = (audio_devices_t)0x82000000;
 const audio_devices_t AUDIO_DEVICE_IN_MATV = (audio_devices_t)0x88000000;
+const audio_devices_t AUDIO_DEVICE_IN_TDM = (audio_devices_t)0x84000000;
 
 #endif

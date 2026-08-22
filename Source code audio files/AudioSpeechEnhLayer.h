@@ -1,39 +1,3 @@
-/* Copyright Statement:
- *
- * This software/firmware and related documentation ("MediaTek Software") are
- * protected under relevant copyright laws. The information contained herein is
- * confidential and proprietary to MediaTek Inc. and/or its licensors. Without
- * the prior written permission of MediaTek inc. and/or its licensors, any
- * reproduction, modification, use or disclosure of MediaTek Software, and
- * information contained herein, in whole or in part, shall be strictly
- * prohibited.
- *
- * MediaTek Inc. (C) 2010. All rights reserved.
- *
- * BY OPENING THIS FILE, RECEIVER HEREBY UNEQUIVOCALLY ACKNOWLEDGES AND AGREES
- * THAT THE SOFTWARE/FIRMWARE AND ITS DOCUMENTATIONS ("MEDIATEK SOFTWARE")
- * RECEIVED FROM MEDIATEK AND/OR ITS REPRESENTATIVES ARE PROVIDED TO RECEIVER
- * ON AN "AS-IS" BASIS ONLY. MEDIATEK EXPRESSLY DISCLAIMS ANY AND ALL
- * WARRANTIES, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE IMPLIED
- * WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE OR
- * NONINFRINGEMENT. NEITHER DOES MEDIATEK PROVIDE ANY WARRANTY WHATSOEVER WITH
- * RESPECT TO THE SOFTWARE OF ANY THIRD PARTY WHICH MAY BE USED BY,
- * INCORPORATED IN, OR SUPPLIED WITH THE MEDIATEK SOFTWARE, AND RECEIVER AGREES
- * TO LOOK ONLY TO SUCH THIRD PARTY FOR ANY WARRANTY CLAIM RELATING THERETO.
- * RECEIVER EXPRESSLY ACKNOWLEDGES THAT IT IS RECEIVER'S SOLE RESPONSIBILITY TO
- * OBTAIN FROM ANY THIRD PARTY ALL PROPER LICENSES CONTAINED IN MEDIATEK
- * SOFTWARE. MEDIATEK SHALL ALSO NOT BE RESPONSIBLE FOR ANY MEDIATEK SOFTWARE
- * RELEASES MADE TO RECEIVER'S SPECIFICATION OR TO CONFORM TO A PARTICULAR
- * STANDARD OR OPEN FORUM. RECEIVER'S SOLE AND EXCLUSIVE REMEDY AND MEDIATEK'S
- * ENTIRE AND CUMULATIVE LIABILITY WITH RESPECT TO THE MEDIATEK SOFTWARE
- * RELEASED HEREUNDER WILL BE, AT MEDIATEK'S OPTION, TO REVISE OR REPLACE THE
- * MEDIATEK SOFTWARE AT ISSUE, OR REFUND ANY SOFTWARE LICENSE FEES OR SERVICE
- * CHARGE PAID BY RECEIVER TO MEDIATEK FOR SUCH MEDIATEK SOFTWARE AT ISSUE.
- *
- * The following software/firmware and/or related documentation ("MediaTek
- * Software") have been modified by MediaTek Inc. All revisions are subject to
- * any receiver's applicable license agreements with MediaTek Inc.
- */
 
 #ifndef _AUDIO_SPEECH_ENH_LAYER_H
 #define _AUDIO_SPEECH_ENH_LAYER_H
@@ -43,16 +7,15 @@
 #include <utils/Vector.h>
 #include <utils/threads.h>
 #include <system/audio.h>
-#include <hardware/audio_mtk.h>
+#include <hardware/audio.h>
 #include <utils/SortedVector.h>
 #include "AudioType.h"
-#include <pthread.h>
+#include "AudioLock.h"
 
 extern "C" {
 #include "enh_api.h"
 }
 #include "CFG_AUDIO_File.h"
-
 
 
 namespace android
@@ -88,14 +51,26 @@ typedef struct {
 
 */
 
-#define EnhanceParasNum  28
+#define EnhanceModeParasExtNum 32
+#define EnhanceParasNum  (28+EnhanceModeParasExtNum)
 #define DMNRCalDataNum  76
 #define CompenFilterNum  270
 
-#define RecBufSize20ms  960
-#define RecBufSize10ms  480
+#define Rec48KUL2BufStartAddr  960
+#define Rec16KUL2BufStartAddr  320
 
-#define EPLBufSize 4160
+#define RecBufSize48K20ms  960
+#define RecBufSize48K10ms  480
+#define RecBufSize48K5ms  240
+#define RecBufSize48K3ms  144
+
+#define RecBufSize16K20ms  320
+#define RecBufSize16K10ms  160
+#define RecBufSize16K5ms  80
+#define RecBufSize16K3ms  48
+
+
+#define EPLBufSize 4800
 #define MaxVMSize   1922    //960*2 +2 for 48K
 #define VMAGC1  3847
 #define VMAGC2  3848
@@ -147,7 +122,8 @@ typedef enum
     STEREO_RECORD = 0x8,
     SPEECH_RECOGNITION = 0x10,
     MONO_AEC_RECORD = 0x20,
-    STEREO_AEC_RECORD = 0x40
+    STEREO_AEC_RECORD = 0x40,
+    LOW_LATENCY_RECORD = 0x80
 } SPE_APP_TABLE;
 
 /*
@@ -194,7 +170,7 @@ struct BufferInfo
 struct InBufferInfo
 {
     short *pBufBase;
-    int BufLen;
+    uint32_t BufLen;
     struct timespec time_stamp_queued;      //buffer queue time
     bool bHasRemainInfo;
     struct timespec time_stamp_predict;     //predict time output from hardware
@@ -230,15 +206,14 @@ class SPELayer
         bool    SetRoute(SPE_ROUTE route);
         bool GetUPlinkIntrStartTime(void);
         bool SetUPLinkIntrStartTime(struct timespec UPlinkStartTime);
-        void SetUPLinkDropTime(uint32 droptime);
-        void SetDownLinkLatencyTime(uint32 latencytime);
+        void SetUPLinkDropTime(uint32_t droptime);
+        void SetDownLinkLatencyTime(uint32_t latencytime);
 
         bool GetDownlinkIntrStartTime(void);
         bool    SetDynamicFuncCtrl(const SPE_MMI_CONTROL_TABLE func, const bool enable);
 
         bool    Start(SPE_MODE mode);
-        bool    Process(SPE_DATA_DIRECTION dir, short *inBuf, int  inBufLength, short *outBuf = 0, int outBufLength = 0);
-        bool    Process(InBufferInfo *InBufinfo);
+        int    Process(InBufferInfo *InBufinfo);
         bool    Stop();
         bool    Standby();
 
@@ -281,9 +256,7 @@ class SPELayer
         void WriteReferenceBuffer(struct InBufferInfo *Binfo);
         void SetOutputStreamRunning(bool bRunning, bool bFromOutputStart = 0);
         void EnableNormalModeVoIP(bool bSet);
-#ifdef EXTCODEC_ECHO_REFERENCE_SUPPORT
         void SetEchoRefStartTime(struct timespec EchoRefStartTime);
-#endif
 
         Vector<BufferInfo *> mDumpDLInBufferQ, mDumpDLOutBufferQ, mDumpULOutBufferQ, mDumpULInBufferQ, mDumpEPLBufferQ;
 #if defined(PC_EMULATION)
@@ -302,8 +275,8 @@ class SPELayer
         FILE *mfpVM;
         static int DumpFileNum;
 
-        pthread_mutex_t mDumpExitMutex;
-        pthread_cond_t mDumpExit_Cond;
+        AudioLock mDumpExitMutex;
+        AudioCondition mDumpExit_Cond;
     private:
 
         void    ReStart();
@@ -312,13 +285,13 @@ class SPELayer
         void AddtoInputBuffer(SPE_DATA_DIRECTION dir, struct InBufferInfo *BInputInfo, bool prequeue = 0);
         void AddUplinkBuffer(struct InBufferInfo *BInputInfo);
         void AddDownlinkBuffer(struct InBufferInfo *BInputInfo, bool prequeue = 0);
-        bool    Process_Record(short *inBuf, int  inBufLength);
+        int    Process_Record(short *inBuf, int  inBufLength);
         bool    Process_VoIP(short *inBuf, int  inBufLength);
         void CompensateBuffer(size_t BufLength, struct timespec CompenStartTime);
-        timespec GetSystemTime(bool print = 0, int dir = 0);
+
         bool    WaitforDownlinkData(void);
         bool    InsertDownlinkData(void);
-        void    AdjustDLDelayData(void);
+
         bool PrepareProcessData(void);
         int GetVoIPJitterTime(void);
         int GetVoIPLatencyTime(void);
@@ -326,6 +299,7 @@ class SPELayer
         void CalPreQNumber(void);
         void CalPrepareCount(void);
         void BypassDLBuffer(void);
+        void ReSync(void);
 
         //inBufLength is time2 buffer's Sample frame count
         unsigned long long TimeStampDiff(BufferInfo *BufInfo1, BufferInfo *BufInfo2);
@@ -377,8 +351,8 @@ class SPELayer
         struct timespec mPreDownlinkEstTime;
         struct timespec mPreDownlinkQueueTime;
 
-        uint32 mULDropTime;
-        uint32 mDLLatencyTime;
+        uint32_t mULDropTime;
+        uint32_t mDLLatencyTime;
         bool mFirstVoIPUplink;
         bool mFirstVoIPDownlink;
         int mPreULBufLen;
@@ -389,7 +363,6 @@ class SPELayer
         bool mDLPreQLimit;
         unsigned long long mNsecPerSample;
         struct timespec mULIntrDeltaTime;
-        bool mDLlateAdjust;
 
         SPH_ENH_ctrl_struct mSph_Enh_ctrl;
         int *mSphCtrlBuffer;
@@ -411,12 +384,12 @@ class SPELayer
         Vector<BufferInfo *> mDLInBufferQ, mDLOutBufferQ, mULOutBufferQ, mULInBufferQ, mDLDelayBufferQ;
         //Vector<BufferInfo>  mULInBufferQ;
 
-        Mutex   mLock, mDumpLock, mBufMutexWantLock;
+        Mutex mLock, mDumpLock, mBufMutexWantLock;
         bool mError;
         bool mVoIPRunningbefore;
 
-        pthread_mutex_t mBufMutex;
-        pthread_cond_t mBuf_Cond;
+        AudioLock mBufMutex;
+        AudioCondition mBuf_Cond;
         bool mOutputStreamRunning;
         bool mNormalModeVoIP;
         size_t mCompensatedBufferSize;

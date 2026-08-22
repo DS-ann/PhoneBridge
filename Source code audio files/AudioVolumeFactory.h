@@ -2,16 +2,24 @@
 #define AUDIO_VOLUME_FACTORY_H
 
 #ifdef MTK_AUDIO_GAIN_TABLE
-#include "AudioMTKGainController.h"
+
+#ifdef MTK_NEW_VOL_CONTROL
+#include "AudioALSAGainController.h"
 #else
-#include "AudioMTKVolumeController.h"
+#include "AudioMTKGainController.h"
 #endif
-#include "AudioMTKVolumeInterface.h"
+
+#else
+#include "AudioALSAVolumeController.h"
+#endif
+
+#include "AudioVolumeInterface.h"
+
 class AudioVolumeFactory
 {
     public:
         // here to implement create and
-        static AudioMTKVolumeInterface *CreateAudioVolumeController();
+        static AudioVolumeInterface *CreateAudioVolumeController();
         static void DestroyAudioVolumeController();
     private:
 };
