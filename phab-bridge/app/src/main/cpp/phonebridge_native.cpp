@@ -1,6 +1,7 @@
 #include <jni.h>
 #include <dlfcn.h>
 #include <android/log.h>
+#include <stdint.h>
 #include <string>
 #include <sstream>
 
@@ -9,18 +10,23 @@
 #define ALOGE(...) __android_log_print(ANDROID_LOG_ERROR, LOG_TAG, __VA_ARGS__)
 
 /*
- * Deliberately non-invasive HAL probe.
+ * Non-invasive MTK audio HAL capability probe.
  *
- * The Phab uses an old MediaTek audio HAL.  An APK must not call the private
- * audio HAL device's open()/stream callbacks just to test access: those
- * callbacks can execute vendor code with assumptions that only hold inside
- * mediaserver/audioflinger.  This probe therefore limits itself to loading
- * libhardware, resolving the public hw_get_module_by_class symbol, obtaining
- * the public module descriptor, and probing likely vendor HAL shared-library
- * names with dlopen().  It never opens an audio_hw_device, starts PCM, changes
- * routing, or calls set_mode()/set_parameters().
+ * IMPORTANT: do not call the vendor audio_hw_device open()/stream callbacks
+ * from an ordinary APK process. On old MediaTek builds those callbacks may
+ * assume AudioFlinger/mediaserver state and a bad call can abort the app.
+ *
+ * This probe therefore only resolves the public libhardware module and
+ * inspects whether its public hw_module_methods_t contains an open callback.
+ * It does NOT open a device, start PCM, change routing, or alter call audio.
  */
 struct hw_module_t_min;
+struct hw_device_t_min;
+
+struct hw_module_methods_t_min {
+    int (*open)(const hw_module_t_min *module, const char *id,
+                hw_device_t_min **device);
+};
 
 typedef int (*hw_get_module_by_class_fn)(const char *, const char *,
                                           const hw_module_t_min **);
@@ -32,7 +38,7 @@ struct hw_module_t_min {
     const char *id;
     const char *name;
     const char *author;
-    void *methods;
+    const hw_module_methods_t_min *methods;
     void *dso;
 };
 
@@ -77,7 +83,6 @@ Java_com_dsann_phonebridge_NativeAudioProbe_probeHal(JNIEnv *env, jclass) {
     hw_get_module_by_class_fn getModule =
             reinterpret_cast<hw_get_module_by_class_fn>(sym);
 
-    /* This is a public libhardware lookup. It does not open the audio device. */
     const hw_module_t_min *module = nullptr;
     int rc = getModule("audio", "primary", &module);
     out << "AUDIO_MODULE[primary]:RC=" << rc;
@@ -86,12 +91,21 @@ Java_com_dsann_phonebridge_NativeAudioProbe_probeHal(JNIEnv *env, jclass) {
         if (module->id) out << ",ID=" << module->id;
         if (module->name) out << ",NAME=" << module->name;
         out << "\nAUDIO_MODULE:OBTAINED=YES\n";
+
+        /* Inspect only. Never invoke module->methods->open here. */
+        if (module->methods && module->methods->open) {
+            out << "AUDIO_MODULE_OPEN_CALLBACK=AVAILABLE\n";
+            out << "AUDIO_MODULE_OPEN_INVOKED=NO\n";
+        } else {
+            out << "AUDIO_MODULE_OPEN_CALLBACK=UNAVAILABLE\n";
+            out << "AUDIO_MODULE_OPEN_INVOKED=NO\n";
+        }
     } else {
         out << ",PTR=NULL\nAUDIO_MODULE:OBTAINED=NO\n";
+        out << "AUDIO_MODULE_OPEN_CALLBACK=UNKNOWN\n";
+        out << "AUDIO_MODULE_OPEN_INVOKED=NO\n";
     }
 
-    /* Keep the vendor-library discovery from the earlier probe, but only use
-     * dlopen/dlclose. No vendor audio_hw_device is instantiated. */
     appendDlopenResult(out, "audio.primary.mt8783.so");
     appendDlopenResult(out, "audio.primary.mt6735.so");
     appendDlopenResult(out, "audio.primary.mt6753.so");
@@ -103,6 +117,6 @@ Java_com_dsann_phonebridge_NativeAudioProbe_probeHal(JNIEnv *env, jclass) {
     out << "NATIVE_AUDIO_HAL_PROBE:END";
 
     dlclose(hardware);
-    ALOGD("Safe HAL capability probe completed");
+    ALOGD("Safe HAL callback capability probe completed");
     return env->NewStringUTF(out.str().c_str());
 }
