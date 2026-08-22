@@ -49,7 +49,7 @@ jobs:
           echo '--- signatures ---' | tee -a report/image-file.txt
           binwalk work/system.img 2>&1 | tee report/binwalk.txt || true
 
-      - name: Convert sparse image and locate real EXT4 start
+      - name: Convert sparse image and locate valid EXT4 start
         run: |
           set -euo pipefail
           if simg2img work/system.img work/system-unsparse.img 2>report/simg2img.err; then
@@ -59,78 +59,127 @@ jobs:
             echo 'Not an Android sparse image; using original image.' | tee report/unsparse.txt
             IMG=work/system.img
           fi
+
+          # An arbitrary 0xEF53 byte pair can occur in a signed/packed image.
+          # Do not select a candidate from the magic alone. Validate the
+          # surrounding EXT4 superblock fields before cutting the image.
           python3 - "$IMG" <<'PY'
-          import sys
-          p=sys.argv[1]; magic=b'\x53\xef'; hits=[]
+          import struct, sys
+          p=sys.argv[1]
+          MAGIC=0xEF53
+          candidates=[]
           with open(p,'rb') as f:
-              pos=0; chunk_size=64*1024*1024; overlap=4096; previous=b''
+              pos=0
+              chunk_size=64*1024*1024
+              overlap=4096
+              previous=b''
               while True:
                   chunk=f.read(chunk_size)
                   if not chunk: break
-                  data=previous+chunk; base=pos-len(previous); start=0
+                  data=previous+chunk
+                  base=pos-len(previous)
+                  start=0
                   while True:
-                      i=data.find(magic,start)
+                      i=data.find(b'\x53\xef', start)
                       if i < 0: break
-                      magic_offset=base+i
-                      fs_offset=magic_offset-0x38-1024
-                      if fs_offset >= 0 and fs_offset % 1024 == 0:
-                          hits.append((fs_offset,magic_offset))
+                      magic_off=base+i
+                      sb_off=magic_off-0x38
+                      fs_off=sb_off-1024
+                      if fs_off >= 0 and fs_off % 1024 == 0:
+                          f.seek(sb_off)
+                          sb=f.read(1024)
+                          if len(sb) >= 256 and struct.unpack_from('<H', sb, 0x38)[0] == MAGIC:
+                              inodes=struct.unpack_from('<I', sb, 0x00)[0]
+                              blocks=struct.unpack_from('<I', sb, 0x04)[0]
+                              first_data=struct.unpack_from('<I', sb, 0x14)[0]
+                              log_bs=struct.unpack_from('<I', sb, 0x18)[0]
+                              log_cluster=struct.unpack_from('<I', sb, 0x1c)[0]
+                              bpg=struct.unpack_from('<I', sb, 0x20)[0]
+                              ipg=struct.unpack_from('<I', sb, 0x28)[0]
+                              rev=struct.unpack_from('<I', sb, 0x4c)[0]
+                              inode_size=struct.unpack_from('<H', sb, 0x58)[0]
+                              feat_compat=struct.unpack_from('<I', sb, 0x5c)[0]
+                              feat_incompat=struct.unpack_from('<I', sb, 0x60)[0]
+                              feat_ro=struct.unpack_from('<I', sb, 0x64)[0]
+                              block_size=1024 << log_bs if 0 <= log_bs <= 6 else 0
+                              sane=(
+                                  blocks > 0 and inodes > 0 and
+                                  0 <= log_bs <= 6 and
+                                  0 <= log_cluster <= 6 and
+                                  bpg > 0 and ipg > 0 and
+                                  first_data < blocks and
+                                  inode_size in (128,256,512) and
+                                  rev in (0,1) and
+                                  block_size >= 1024
+                              )
+                              candidates.append((sane, fs_off, magic_off, blocks, block_size, rev, inode_size, feat_incompat, feat_ro))
                       start=i+1
-                  pos += len(chunk); previous=chunk[-overlap:]
-          seen=set(); unique=[]
-          for h in hits:
-              if h[0] not in seen: seen.add(h[0]); unique.append(h)
-          print('EXT4 candidate filesystem offsets:', [x[0] for x in unique[:50]])
-          with open('report/ext4-offsets.txt','w') as out:
-              for fs_offset,magic_offset in unique:
-                  out.write(f'filesystem_offset={fs_offset} magic_offset={magic_offset}\n')
-          if unique: open('work/ext4-offset','w').write(str(unique[0][0]))
+                      f.seek(pos + len(chunk))
+                  pos += len(chunk)
+                  previous=chunk[-overlap:]
+                  f.seek(pos)
+
+          sane=[c for c in candidates if c[0]]
+          print('All EXT4-like candidates:', len(candidates))
+          print('Validated EXT4 candidates:', len(sane))
+          for c in sane[:50]: print(c)
+          with open('report/ext4-candidates.txt','w') as out:
+              for c in candidates:
+                  out.write('sane=%s filesystem_offset=%d magic_offset=%d blocks=%d block_size=%d revision=%d inode_size=%d incompat=0x%x ro=0x%x\n' % c)
+          if sane:
+              c=sane[0]
+              open('work/ext4-offset','w').write(str(c[1]))
+              open('work/ext4-valid','w').write('yes')
+          else:
+              open('work/ext4-valid','w').write('no')
           PY
+
           OFFSET=0
           [ -s work/ext4-offset ] && OFFSET=$(cat work/ext4-offset)
           echo "Filesystem offset: $OFFSET" | tee report/filesystem-offset.txt
-          if [ "$OFFSET" = 0 ]; then cp "$IMG" work/system-ext4.img; else tail -c +$((OFFSET+1)) "$IMG" > work/system-ext4.img; fi
+          if [ "$OFFSET" = 0 ]; then
+            cp "$IMG" work/system-ext4.img
+          else
+            dd if="$IMG" of=work/system-ext4.img bs=4096 skip=$((OFFSET/4096)) status=none
+          fi
           file work/system-ext4.img | tee report/ext4-file.txt
 
       - name: Inspect and extract filesystem
         run: |
           set -euo pipefail
           mkdir -p extracted/mnt extracted/userspace
+          if [ "$(cat work/ext4-valid)" != yes ]; then
+            echo 'No validated EXT4 superblock candidate was found; extraction skipped.' | tee report/extraction-status.txt
+            exit 0
+          fi
+
           e2fsck -fn work/system-ext4.img >report/e2fsck.txt 2>&1 || true
           dumpe2fs -h work/system-ext4.img >report/ext4-header.txt 2>&1 || true
 
-          # First try the normal EXT4 tools. Android images can advertise
-          # filesystem features newer than the runner's e2fsprogs, so failure
-          # here is informational rather than fatal.
-          if grep -q 'Filesystem revision too high' report/e2fsck.txt; then
-            echo 'e2fsck cannot validate this Android EXT4 revision; trying userspace extraction.' | tee report/e2fsck-status.txt
-          elif grep -q 'Bad magic number' report/e2fsck.txt; then
-            echo 'EXT4 validation reported bad magic; trying userspace extraction anyway.' | tee report/e2fsck-status.txt
+          # debugfs reads the filesystem image directly and is preferred over
+          # the host kernel mount. If the Android image uses features newer
+          # than the runner's e2fsprogs, record that and continue.
+          if grep -qiE 'Filesystem revision too high|Bad magic number|unsupported feature' report/e2fsck.txt report/ext4-header.txt; then
+            echo 'Runner e2fsprogs cannot fully validate this Android EXT4 image.' | tee report/e2fsck-status.txt
           else
-            echo 'e2fsck inspection completed.' | tee report/e2fsck-status.txt
+            echo 'EXT4 validation completed.' | tee report/e2fsck-status.txt
           fi
 
-          # 7-Zip has an EXT filesystem reader and does not require the host
-          # kernel to understand the Android journal/features. Use it first.
-          if 7z l work/system-ext4.img >report/7z-list.txt 2>report/7z-list.err; then
-            echo '7-Zip can read the EXT image; using userspace extraction.' | tee report/extraction-status.txt
-            7z l -slt work/system-ext4.img >report/7z-list-slt.txt 2>&1 || true
-            7z x -y work/system-ext4.img -oextracted/userspace \
-              '*/etc/*audio*' '*/etc/*mixer*' '*/etc/*policy*' '*/etc/*route*' '*/etc/*voice*' \
-              '*/vendor/etc/*audio*' '*/vendor/etc/*mixer*' '*/vendor/etc/*policy*' '*/vendor/etc/*route*' '*/vendor/etc/*voice*' \
-              '*/system/etc/*audio*' '*/system/etc/*mixer*' '*/system/etc/*policy*' '*/system/etc/*route*' '*/system/etc/*voice*' \
-              '*/lib/hw/audio*' '*/lib64/hw/audio*' \
-              >report/7z-extract.txt 2>&1 || true
-          else
-            echo '7-Zip could not read the EXT image; trying debugfs fallback.' | tee report/extraction-status.txt
-            cat report/7z-list.err || true
-            debugfs -n -c -R 'ls -l /etc' work/system-ext4.img >report/debugfs-etc.txt 2>&1 || true
-            debugfs -n -c -R 'ls -l /vendor/etc' work/system-ext4.img >report/debugfs-vendor-etc.txt 2>&1 || true
-            debugfs -n -c -R 'ls -l /system/etc' work/system-ext4.img >report/debugfs-system-etc.txt 2>&1 || true
-          fi
+          # Produce directory listings using debugfs when possible.
+          for path in / /etc /system/etc /vendor/etc; do
+            safe=$(echo "$path" | tr '/' '_')
+            debugfs -R "ls -l $path" work/system-ext4.img >"report/debugfs${safe}.txt" 2>&1 || true
+          done
 
-          # Keep the kernel mount only as an additional fallback. It is not
-          # required for the workflow to succeed.
+          # If debugfs supports rdump, dump the likely Android configuration
+          # directories. This avoids requiring a kernel mount.
+          debugfs -R 'rdump /etc extracted/userspace/etc' work/system-ext4.img >report/debugfs-rdump-etc.txt 2>&1 || true
+          debugfs -R 'rdump /system/etc extracted/userspace/system-etc' work/system-ext4.img >report/debugfs-rdump-system-etc.txt 2>&1 || true
+          debugfs -R 'rdump /vendor/etc extracted/userspace/vendor-etc' work/system-ext4.img >report/debugfs-rdump-vendor-etc.txt 2>&1 || true
+          debugfs -R 'rdump /system/lib/hw extracted/userspace/system-lib-hw' work/system-ext4.img >report/debugfs-rdump-lib-hw.txt 2>&1 || true
+          debugfs -R 'rdump /system/lib64/hw extracted/userspace/system-lib64-hw' work/system-ext4.img >report/debugfs-rdump-lib64-hw.txt 2>&1 || true
+
+          # Kernel mount is only a fallback and is not required for success.
           if sudo mount -o loop,ro,noload work/system-ext4.img extracted/mnt 2>report/mount.err; then
             echo 'Kernel read-only EXT4 mount succeeded.' | tee -a report/extraction-status.txt
           else
@@ -143,7 +192,6 @@ jobs:
           set -euo pipefail
           mkdir -p extracted/etc extracted/vendor/etc extracted/system/etc extracted/lib/hw extracted/lib64/hw
 
-          # Copy files found by the userspace extractor into predictable paths.
           if [ -d extracted/userspace ]; then
             find extracted/userspace -type f -print0 2>/dev/null | while IFS= read -r -d '' f; do
               rel="${f#extracted/userspace/}"
