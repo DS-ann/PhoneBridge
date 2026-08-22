@@ -8,6 +8,7 @@ import android.media.AudioRecord
 import android.media.AudioTrack
 import android.media.MediaRecorder
 import android.os.Build
+import java.lang.reflect.Method
 import java.util.concurrent.Executors
 import java.util.concurrent.Future
 import java.util.concurrent.atomic.AtomicBoolean
@@ -42,8 +43,99 @@ object AudioProbe {
                 lines += "SOURCE_$name:$result"
             }
             lines += "CALL_SOURCE_PROBE:END"
+
+            // Android 6 exposes audio-port/patch enumeration above the HAL.
+            // These APIs are hidden, so use reflection and only enumerate them.
+            // No stream is opened and no routing is changed by this probe.
+            lines += "AUDIO_PORT_PATCH_PROBE:BEGIN"
+            lines += "ACTIVE_MODE:${am.mode}"
+            lines += "MODE_IN_CALL:${AudioManager.MODE_IN_CALL}"
+            try {
+                val ports = ArrayList<Any>()
+                val method = findAudioManagerMethod("listAudioPorts")
+                lines += "LIST_AUDIO_PORTS_API:${if (method != null) "AVAILABLE" else "UNAVAILABLE"}"
+                if (method != null) {
+                    val rc = invokeListMethod(method, am, ports)
+                    lines += "LIST_AUDIO_PORTS_RC:$rc"
+                    lines += "AUDIO_PORT_COUNT:${ports.size}"
+                    for (i in ports.indices) appendPortSummary(lines, i, ports[i])
+                }
+            } catch (e: Throwable) {
+                lines += "AUDIO_PORT_ENUM_ERROR:${e.javaClass.simpleName}:${e.message ?: ""}"
+            }
+            try {
+                val patches = ArrayList<Any>()
+                val method = findAudioManagerMethod("listAudioPatches")
+                lines += "LIST_AUDIO_PATCHES_API:${if (method != null) "AVAILABLE" else "UNAVAILABLE"}"
+                if (method != null) {
+                    val rc = invokeListMethod(method, am, patches)
+                    lines += "LIST_AUDIO_PATCHES_RC:$rc"
+                    lines += "AUDIO_PATCH_COUNT:${patches.size}"
+                    for (i in patches.indices) appendPatchSummary(lines, i, patches[i])
+                }
+            } catch (e: Throwable) {
+                lines += "AUDIO_PATCH_ENUM_ERROR:${e.javaClass.simpleName}:${e.message ?: ""}"
+            }
+            lines += "PROBE_CHANGED_ROUTING:NO"
+            lines += "AUDIO_PORT_PATCH_PROBE:END"
+
             prefs.edit().putString("audio_probe", lines.joinToString("\n")).apply()
         }
+    }
+
+    private fun findAudioManagerMethod(name: String): Method? {
+        return try {
+            AudioManager::class.java.getDeclaredMethod(name, ArrayList::class.java).apply { isAccessible = true }
+        } catch (_: Throwable) {
+            try {
+                AudioManager::class.java.getMethod(name, ArrayList::class.java).apply { isAccessible = true }
+            } catch (_: Throwable) {
+                null
+            }
+        }
+    }
+
+    private fun invokeListMethod(method: Method, manager: AudioManager, list: ArrayList<Any>): Int {
+        return try {
+            (method.invoke(manager, list) as Number).toInt()
+        } catch (_: IllegalArgumentException) {
+            (method.invoke(null, list) as Number).toInt()
+        }
+    }
+
+    private fun appendPortSummary(lines: ArrayList<String>, index: Int, port: Any?) {
+        if (port == null) {
+            lines += "PORT[$index]=NULL"
+            return
+        }
+        lines += "PORT[$index]_CLASS:${port.javaClass.name}"
+        appendObjectMethod(lines, "PORT[$index]_ID", port, "id")
+        appendObjectMethod(lines, "PORT[$index]_NAME", port, "name")
+        appendObjectMethod(lines, "PORT[$index]_ROLE", port, "role")
+        appendObjectMethod(lines, "PORT[$index]_TYPE", port, "type")
+        appendObjectMethod(lines, "PORT[$index]_HANDLE", port, "handle")
+        appendObjectMethod(lines, "PORT[$index]_ADDRESS", port, "address")
+    }
+
+    private fun appendPatchSummary(lines: ArrayList<String>, index: Int, patch: Any?) {
+        if (patch == null) {
+            lines += "PATCH[$index]=NULL"
+            return
+        }
+        lines += "PATCH[$index]_CLASS:${patch.javaClass.name}"
+        appendObjectMethod(lines, "PATCH[$index]_HANDLE", patch, "handle")
+        appendObjectMethod(lines, "PATCH[$index]_SOURCES", patch, "sources")
+        appendObjectMethod(lines, "PATCH[$index]_SINKS", patch, "sinks")
+    }
+
+    private fun appendObjectMethod(lines: ArrayList<String>, key: String, obj: Any, methodName: String) {
+        try {
+            val method = obj.javaClass.methods.firstOrNull {
+                it.name == methodName && it.parameterTypes.isEmpty()
+            } ?: return
+            val value = method.invoke(obj) ?: return
+            lines += "$key:$value"
+        } catch (_: Throwable) { }
     }
 
     @Synchronized fun startLoopback(context: Context): Boolean {
