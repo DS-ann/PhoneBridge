@@ -6,6 +6,7 @@ on:
       firmware_url:
         description: Firmware ZIP URL
         required: true
+        type: string
         default: https://archive.org/download/PB2670MS000050171016ROW/PB2-670M_S000050_171016_ROW.zip
 
 jobs:
@@ -20,7 +21,7 @@ jobs:
           path: |
             cache/firmware
             cache/extracted
-          key: phab-firmware-${{ hashFiles('.github/workflows/inspect-phab-firmware.yml') }}-${{ hashFiles('firmware.lock') }}
+          key: phab-firmware-${{ hashFiles('.github/workflows/inspect-phab-firmware.yml') }}
           restore-keys: |
             phab-firmware-
 
@@ -77,27 +78,20 @@ jobs:
           python3 - "$img" > extracted/diagnostics/ext4-candidates.txt <<'PY'
 import sys, struct
 p=sys.argv[1]
-size=0
 with open(p,'rb') as f:
     f.seek(0,2); size=f.tell()
-    f.seek(0)
-    # Scan in 4 KiB steps first; EXT superblocks are normally aligned to block boundaries.
-    off=0
-    found=0
+    off=0; found=0
     while off + 2048 <= size:
         f.seek(off + 1024 + 56)
-        b=f.read(2)
-        if b == b'\x53\xef':
-            f.seek(off + 1024)
-            sb=f.read(1024)
+        if f.read(2) == b'\x53\xef':
+            f.seek(off + 1024); sb=f.read(1024)
             if len(sb)==1024:
-                magic=struct.unpack_from('<H',sb,56)[0]
                 rev=struct.unpack_from('<I',sb,76)[0]
                 log_bs=struct.unpack_from('<I',sb,24)[0]
                 blocks_lo=struct.unpack_from('<I',sb,4)[0]
-                blocks_hi=struct.unpack_from('<I',sb,0x150)[0] if len(sb)>=0x154 else 0
-                incompat=struct.unpack_from('<I',sb,0x160)[0] if len(sb)>=0x164 else 0
-                compat=struct.unpack_from('<I',sb,0x15c)[0] if len(sb)>=0x160 else 0
+                blocks_hi=struct.unpack_from('<I',sb,0x150)[0]
+                incompat=struct.unpack_from('<I',sb,0x160)[0]
+                compat=struct.unpack_from('<I',sb,0x15c)[0]
                 uuid=sb[104:120].hex()
                 bs=1024 << log_bs if log_bs < 8 else 0
                 total=blocks_lo | (blocks_hi << 32)
@@ -110,7 +104,7 @@ with open(p,'rb') as f:
 PY
           cat extracted/diagnostics/ext4-candidates.txt || true
 
-      - name: Extract audio-related files from cached filesystem if available
+      - name: Reuse cached extracted filesystem
         run: |
           set -euo pipefail
           mkdir -p extracted/audio
@@ -118,7 +112,7 @@ PY
             echo "Using cached extracted filesystem"
             cp -a cache/extracted/system/. extracted/audio/ || true
           else
-            echo "No valid filesystem extraction yet; diagnostics retained."
+            echo "No filesystem extraction cached yet; diagnostics retained."
           fi
 
       - name: Cache useful results
