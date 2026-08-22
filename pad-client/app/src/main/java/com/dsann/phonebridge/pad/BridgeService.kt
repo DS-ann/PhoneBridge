@@ -27,6 +27,8 @@ class BridgeService : Service() {
         private const val ACTION_AUDIO_STOP = "com.dsann.phonebridge.AUDIO_STOP"
         private const val EXTRA_HOST = "host"
         private const val EXTRA_COMMAND = "command"
+        const val ACTION_EVENT = "com.dsann.phonebridge.BRIDGE_EVENT"
+        const val EXTRA_EVENT = "event"
 
         fun start(context: Context, host: String) {
             val intent = Intent(context, BridgeService::class.java).apply {
@@ -170,11 +172,10 @@ class BridgeService : Service() {
     }
 
     private fun broadcast(message: String) {
-        val intent = Intent(ACTION_EVENT).apply {
+        sendBroadcast(Intent(ACTION_EVENT).apply {
             setPackage(packageName)
             putExtra(EXTRA_EVENT, message)
-        }
-        sendBroadcast(intent)
+        })
     }
 
     private fun createNotificationChannel() {
@@ -189,22 +190,12 @@ class BridgeService : Service() {
         val flags = PendingIntent.FLAG_UPDATE_CURRENT or if (Build.VERSION.SDK_INT >= 23) PendingIntent.FLAG_IMMUTABLE else 0
         val pending = PendingIntent.getActivity(this, 0, launch, flags)
         return if (Build.VERSION.SDK_INT >= 26) {
-            Notification.Builder(this, CHANNEL_ID)
-                .setContentTitle("PhoneBridge")
-                .setContentText(text)
-                .setSmallIcon(android.R.drawable.sym_def_app_icon)
-                .setContentIntent(pending)
-                .setOngoing(true)
-                .build()
+            Notification.Builder(this, CHANNEL_ID).setContentTitle("PhoneBridge").setContentText(text)
+                .setSmallIcon(android.R.drawable.sym_def_app_icon).setContentIntent(pending).setOngoing(true).build()
         } else {
             @Suppress("DEPRECATION")
-            Notification.Builder(this)
-                .setContentTitle("PhoneBridge")
-                .setContentText(text)
-                .setSmallIcon(android.R.drawable.sym_def_app_icon)
-                .setContentIntent(pending)
-                .setOngoing(true)
-                .build()
+            Notification.Builder(this).setContentTitle("PhoneBridge").setContentText(text)
+                .setSmallIcon(android.R.drawable.sym_def_app_icon).setContentIntent(pending).setOngoing(true).build()
         }
     }
 
@@ -221,10 +212,5 @@ class BridgeService : Service() {
         closeSocket()
         io.shutdownNow()
         super.onDestroy()
-    }
-
-    companion object Events {
-        const val ACTION_EVENT = "com.dsann.phonebridge.BRIDGE_EVENT"
-        const val EXTRA_EVENT = "event"
     }
 }
