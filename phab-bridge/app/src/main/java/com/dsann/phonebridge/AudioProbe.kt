@@ -42,12 +42,12 @@ object AudioProbe {
             for ((name, source) in sources) lines += "SOURCE_$name:${probeSource(source)}"
             lines += "CALL_SOURCE_PROBE:END"
             appendAudioPortPatchProbe(lines, am)
-            appendPrimaryInputCapabilityProbe(lines)
+            appendPrimaryInputCapabilityProbe(lines, am)
             prefs.edit().putString("audio_probe", lines.joinToString("\n")).apply()
         }
     }
 
-    private fun appendPrimaryInputCapabilityProbe(lines: ArrayList<String>) {
+    private fun appendPrimaryInputCapabilityProbe(lines: ArrayList<String>, am: AudioManager) {
         lines += "PRIMARY_INPUT_CAPABILITY_PROBE:BEGIN"
         lines += "TARGET_MIX_NAME:primary"
         lines += "TARGET_MIX_ROLE:SINK"
@@ -58,6 +58,9 @@ object AudioProbe {
         lines += "ROUTING_CHANGED:NO"
         lines += "PATCH_MODIFIED:NO"
         lines += "DIRECT_MIX_PORT_SELECTION:UNAVAILABLE_ON_PUBLIC_API23"
+        lines += "ASSOCIATION_TEST:BEFORE_AFTER_PATCH_SNAPSHOT"
+        appendPatchTopologySnapshot(lines, am, "BEFORE")
+
         val sources = listOf(
             "VOICE_COMMUNICATION" to MediaRecorder.AudioSource.VOICE_COMMUNICATION,
             "VOICE_UPLINK" to MediaRecorder.AudioSource.VOICE_UPLINK,
@@ -81,6 +84,7 @@ object AudioProbe {
                     try {
                         record.startRecording()
                         lines += "INPUT_${name}_RECORDING_STATE:${record.recordingState}"
+                        appendPatchTopologySnapshot(lines, am, "DURING_$name")
                         val pcm = ShortArray(160)
                         lines += "INPUT_${name}_READ_RC:${record.read(pcm, 0, pcm.size)}"
                     } catch (e: SecurityException) {
@@ -96,9 +100,67 @@ object AudioProbe {
             } finally {
                 try { record?.stop() } catch (_: Throwable) {}
                 try { record?.release() } catch (_: Throwable) {}
+                appendPatchTopologySnapshot(lines, am, "AFTER_$name")
             }
         }
+        lines += "ASSOCIATION_INTERPRETATION:COMPARE_PATCH_PORT_IDS_AROUND_VOICE_COMMUNICATION"
         lines += "PRIMARY_INPUT_CAPABILITY_PROBE:END"
+    }
+
+    private fun appendPatchTopologySnapshot(lines: ArrayList<String>, am: AudioManager, label: String) {
+        lines += "PATCH_ASSOCIATION_SNAPSHOT:$label:BEGIN"
+        try {
+            val patches = ArrayList<Any>()
+            val method = findAudioManagerMethod("listAudioPatches")
+            if (method == null) {
+                lines += "PATCH_ASSOCIATION_LIST_API:UNAVAILABLE"
+            } else {
+                val rc = invokeListMethod(method, am, patches)
+                lines += "PATCH_ASSOCIATION_LIST_RC:$rc"
+                lines += "PATCH_ASSOCIATION_COUNT:${patches.size}"
+                for (i in patches.indices) appendCompactPatchTopology(lines, i, patches[i])
+            }
+        } catch (e: Throwable) {
+            lines += "PATCH_ASSOCIATION_ERROR:${e.javaClass.simpleName}:${e.message ?: ""}"
+        }
+        lines += "PATCH_ASSOCIATION_SNAPSHOT:$label:END"
+    }
+
+    private fun appendCompactPatchTopology(lines: ArrayList<String>, index: Int, patch: Any?) {
+        if (patch == null) {
+            lines += "PATCH_ASSOCIATION[$index]:NULL"
+            return
+        }
+        val source = readPatchSidePort(patch, "sources")
+        val sink = readPatchSidePort(patch, "sinks")
+        lines += "PATCH_ASSOCIATION[$index]_SOURCE_PORT:$source"
+        lines += "PATCH_ASSOCIATION[$index]_SINK_PORT:$sink"
+    }
+
+    private fun readPatchSidePort(patch: Any, accessor: String): String {
+        return try {
+            val method = patch.javaClass.methods.firstOrNull { it.name == accessor && it.parameterTypes.isEmpty() } ?: return "UNKNOWN"
+            val value = method.invoke(patch) ?: return "NONE"
+            if (!value.javaClass.isArray || Array.getLength(value) == 0) return "NONE"
+            val cfg = Array.get(value, 0) ?: return "NONE"
+            val portMethod = cfg.javaClass.methods.firstOrNull { it.name == "port" && it.parameterTypes.isEmpty() }
+                ?: return cfg.toString()
+            val port = portMethod.invoke(cfg) ?: return "NONE"
+            val id = readObjectMethod(port, "id")
+            val role = readObjectMethod(port, "role")
+            val type = readObjectMethod(port, "type")
+            val name = readObjectMethod(port, "name")
+            "id=$id,role=$role,type=$type,name=$name"
+        } catch (e: Throwable) {
+            "ERROR:${e.javaClass.simpleName}"
+        }
+    }
+
+    private fun readObjectMethod(obj: Any, methodName: String): String {
+        return try {
+            val method = obj.javaClass.methods.firstOrNull { it.name == methodName && it.parameterTypes.isEmpty() } ?: return "?"
+            method.invoke(obj)?.toString() ?: "null"
+        } catch (_: Throwable) { "?" }
     }
 
     private fun appendAudioPortPatchProbe(lines: ArrayList<String>, am: AudioManager) {
