@@ -2,6 +2,10 @@ package com.dsann.phonebridge.pad
 
 import android.Manifest
 import android.app.Activity
+import android.content.BroadcastReceiver
+import android.content.Context
+import android.content.Intent
+import android.content.IntentFilter
 import android.content.pm.PackageManager
 import android.graphics.Color
 import android.os.Bundle
@@ -13,20 +17,9 @@ import android.widget.Button
 import android.widget.EditText
 import android.widget.LinearLayout
 import android.widget.TextView
-import java.io.BufferedReader
-import java.io.InputStreamReader
-import java.io.PrintWriter
-import java.net.InetAddress
-import java.net.InetSocketAddress
-import java.net.Socket
-import java.util.concurrent.Executors
 
 class MainActivity : Activity() {
-    private val io = Executors.newCachedThreadPool()
     private val ui = Handler(Looper.getMainLooper())
-    private var socket: Socket? = null
-    private var writer: PrintWriter? = null
-    private var phabHost = "192.168.43.1"
     private lateinit var connectionStatus: TextView
     private lateinit var callStatus: TextView
     private lateinit var resultStatus: TextView
@@ -34,6 +27,8 @@ class MainActivity : Activity() {
     private lateinit var number: EditText
     private lateinit var timer: TextView
     private var callStartedAt = 0L
+    private var receiverRegistered = false
+    private val phabHost = "192.168.43.1"
 
     private val timerTask = object : Runnable {
         override fun run() {
@@ -44,10 +39,34 @@ class MainActivity : Activity() {
         }
     }
 
+    private val bridgeReceiver = object : BroadcastReceiver() {
+        override fun onReceive(context: Context?, intent: Intent?) {
+            val event = intent?.getStringExtra(BridgeService.EXTRA_EVENT) ?: return
+            when {
+                event == "CONNECTION:CONNECTING" -> connectionStatus.text = "● Connecting…"
+                event == "CONNECTION:CONNECTED" -> connectionStatus.text = "● Connected • Phab"
+                event == "CONNECTION:PONG" -> connectionStatus.text = "● Connected • PONG"
+                event == "CONNECTION:DISCONNECTED" -> connectionStatus.text = "● Disconnected"
+                event.startsWith("CONNECTION:FAILED:") -> connectionStatus.text = "● Connection failed: ${event.substringAfterLast(':')}"
+                event.startsWith("PHAB:CALL_STATE:") -> setCallStatus(event.substringAfter("PHAB:"))
+                event.startsWith("PHAB:AUDIO_ROUTE:") -> resultStatus.text = "Audio: ${event.substringAfter("PHAB:").substringAfter(':')}"
+                event.startsWith("PHAB:OK:AUDIO_START") -> resultStatus.text = "✓ Wi-Fi audio connected"
+                event.startsWith("PHAB:OK:") -> resultStatus.text = "✓ ${event.substringAfter("PHAB:OK:")}"
+                event.startsWith("PHAB:ERROR:") -> resultStatus.text = "✕ ${event.substringAfter("PHAB:ERROR:")}"
+                event.startsWith("AUDIO:STARTING:") -> resultStatus.text = "Starting Wi-Fi audio • UDP ${event.substringAfterLast(':')}"
+                event == "AUDIO:ALREADY_RUNNING" -> resultStatus.text = "✓ Wi-Fi audio already running"
+                event == "AUDIO:STOPPED" -> resultStatus.text = "Wi-Fi audio stopped"
+                event.startsWith("ERROR:") -> resultStatus.text = "✕ ${event.substringAfter(':')}"
+                else -> resultStatus.text = event
+            }
+        }
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         buildUi()
         requestAudioPermissionIfNeeded()
+        registerBridgeReceiver()
         ui.post(timerTask)
     }
 
@@ -103,10 +122,14 @@ class MainActivity : Activity() {
         reject.setOnClickListener { send("REJECT") }
         hangup.setOnClickListener { send("HANGUP") }
         startAudio.setOnClickListener { startWifiAudio() }
-        stopAudio.setOnClickListener {
-            send("AUDIO_STOP")
-            AudioClient.stop(this)
-        }
+        stopAudio.setOnClickListener { BridgeService.stopAudio(this) }
+    }
+
+    private fun registerBridgeReceiver() {
+        val filter = IntentFilter(BridgeService.ACTION_EVENT)
+        if (android.os.Build.VERSION.SDK_INT >= 33) registerReceiver(bridgeReceiver, filter, Context.RECEIVER_NOT_EXPORTED)
+        else registerReceiver(bridgeReceiver, filter)
+        receiverRegistered = true
     }
 
     private fun requestAudioPermissionIfNeeded() {
@@ -121,66 +144,39 @@ class MainActivity : Activity() {
             requestAudioPermissionIfNeeded()
             return
         }
-        io.execute {
-            try {
-                val address = InetAddress.getByName(phabHost)
-                val port = AudioClient.start(this, address)
-                if (port < 0) { setResult("Audio already running"); return@execute }
-                send("AUDIO_START:$port")
-                setResult("Starting Wi-Fi audio • UDP $port")
-            } catch (e: Exception) { setResult("Audio start failed: ${e.javaClass.simpleName}:${e.message ?: ""}") }
-        }
-    }
-
-    private fun setConnectionStatus(value: String) = runOnUiThread { connectionStatus.text = value }
-    private fun setResult(value: String) = runOnUiThread { resultStatus.text = value }
-    private fun setCallStatus(value: String) = runOnUiThread {
-        callStatus.text = value
-        when (value) { "OFFHOOK" -> if (callStartedAt == 0L) callStartedAt = SystemClock.elapsedRealtime(); "IDLE" -> callStartedAt = 0L }
+        BridgeService.start(this, phabHost)
+        BridgeService.startAudio(this)
+        setResult("Starting Wi-Fi audio")
     }
 
     private fun connectTo(host: String) {
-        closeConnection(); phabHost = host; setConnectionStatus("● Connecting…")
-        io.execute {
-            try {
-                val s = Socket(); s.connect(InetSocketAddress(host, 45821), 5000); s.keepAlive = true
-                val w = PrintWriter(s.getOutputStream(), true); val reader = BufferedReader(InputStreamReader(s.getInputStream()))
-                socket = s; writer = w; setConnectionStatus("● Connected • Phab"); io.execute { readLoop(s, reader) }
-            } catch (e: Exception) { setConnectionStatus("● Connection failed: ${e.javaClass.simpleName}") }
+        BridgeService.start(this, host)
+    }
+
+    private fun setResult(value: String) = runOnUiThread { resultStatus.text = value }
+    private fun setCallStatus(value: String) = runOnUiThread {
+        callStatus.text = value
+        when {
+            value == "OFFHOOK" || value == "ACTIVE" -> if (callStartedAt == 0L) callStartedAt = SystemClock.elapsedRealtime()
+            value == "IDLE" -> callStartedAt = 0L
         }
     }
 
-    private fun readLoop(s: Socket, reader: BufferedReader) {
-        try {
-            while (!s.isClosed) {
-                val line = reader.readLine() ?: break
-                when {
-                    line.startsWith("CALL_STATE:") -> setCallStatus(line.substringAfter(':'))
-                    line.startsWith("AUDIO_ROUTE:") -> setResult("Audio: ${line.substringAfter(':')}")
-                    line.startsWith("OK:AUDIO_START") -> setResult("✓ Wi-Fi audio connected")
-                    line == "PONG" -> setConnectionStatus("● Connected • PONG")
-                    line.startsWith("OK:") -> setResult("✓ ${line.substringAfter(':')}")
-                    line.startsWith("ERROR:") -> setResult("✕ ${line.substringAfter(':')}")
-                    line.startsWith("READY") -> setResult("Bridge ready")
-                    else -> setResult(line)
-                }
-            }
-        } catch (_: Exception) { }
-        finally {
-            if (socket === s) { socket = null; writer = null; AudioClient.stop(this); setConnectionStatus("● Disconnected") }
-        }
+    private fun send(command: String) = BridgeService.send(this, command)
+
+    private fun formatDuration(ms: Long): String {
+        val totalSeconds = ms / 1000
+        return "%02d:%02d".format(totalSeconds / 60, totalSeconds % 60)
     }
 
-    private fun send(command: String) {
-        io.execute {
-            val w = writer; val s = socket
-            if (s == null || s.isClosed || w == null) { setConnectionStatus("● Not connected"); return@execute }
-            try { w.println(command); w.flush(); if (w.checkError()) setConnectionStatus("● Send failed") }
-            catch (e: Exception) { setConnectionStatus("● Send failed: ${e.javaClass.simpleName}") }
+    override fun onDestroy() {
+        if (receiverRegistered) {
+            try { unregisterReceiver(bridgeReceiver) } catch (_: Exception) { }
+            receiverRegistered = false
         }
+        ui.removeCallbacks(timerTask)
+        // The bridge is deliberately NOT stopped here. BridgeService owns the
+        // socket/audio lifecycle so rotation and leaving the Activity do not disconnect it.
+        super.onDestroy()
     }
-
-    private fun formatDuration(ms: Long): String { val totalSeconds = ms / 1000; return "%02d:%02d".format(totalSeconds / 60, totalSeconds % 60) }
-    private fun closeConnection() { AudioClient.stop(this); try { socket?.close() } catch (_: Exception) { }; socket = null; writer = null }
-    override fun onDestroy() { ui.removeCallbacks(timerTask); AudioClient.stop(this); closeConnection(); io.shutdownNow(); super.onDestroy() }
 }
