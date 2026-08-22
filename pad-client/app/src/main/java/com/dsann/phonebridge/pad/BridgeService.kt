@@ -8,7 +8,9 @@ import android.app.Service
 import android.content.Context
 import android.content.Intent
 import android.os.Build
+import android.os.Handler
 import android.os.IBinder
+import android.os.Looper
 import java.io.BufferedReader
 import java.io.InputStreamReader
 import java.io.PrintWriter
@@ -27,6 +29,8 @@ class BridgeService : Service() {
         private const val ACTION_AUDIO_STOP = "com.dsann.phonebridge.AUDIO_STOP"
         private const val EXTRA_HOST = "host"
         private const val EXTRA_COMMAND = "command"
+        private const val PREFS = "bridge_service"
+        private const val PREF_HOST = "host"
         const val ACTION_EVENT = "com.dsann.phonebridge.BRIDGE_EVENT"
         const val EXTRA_EVENT = "event"
 
@@ -61,12 +65,22 @@ class BridgeService : Service() {
     }
 
     private val io = Executors.newCachedThreadPool()
+    private val reconnectHandler = Handler(Looper.getMainLooper())
     private var socket: Socket? = null
     private var writer: PrintWriter? = null
     private var phabHost = "192.168.43.1"
+    private var reconnectScheduled = false
+
+    private val reconnectTask = object : Runnable {
+        override fun run() {
+            reconnectScheduled = false
+            connectTo(phabHost)
+        }
+    }
 
     override fun onCreate() {
         super.onCreate()
+        phabHost = getSharedPreferences(PREFS, MODE_PRIVATE).getString(PREF_HOST, phabHost) ?: phabHost
         createNotificationChannel()
         startForeground(NOTIFICATION_ID, buildNotification("Bridge running"))
     }
@@ -77,12 +91,15 @@ class BridgeService : Service() {
             ACTION_SEND -> sendCommand(intent.getStringExtra(EXTRA_COMMAND) ?: return START_STICKY)
             ACTION_AUDIO_START -> startWifiAudio()
             ACTION_AUDIO_STOP -> stopWifiAudio()
+            null -> connectTo(phabHost)
         }
         return START_STICKY
     }
 
     private fun connectTo(host: String) {
         phabHost = host
+        getSharedPreferences(PREFS, MODE_PRIVATE).edit().putString(PREF_HOST, host).apply()
+
         if (socket?.isConnected == true && socket?.isClosed == false) {
             broadcast("CONNECTION:CONNECTED")
             return
@@ -102,8 +119,15 @@ class BridgeService : Service() {
                 readLoop(s, reader)
             } catch (e: Exception) {
                 broadcast("CONNECTION:FAILED:${e.javaClass.simpleName}")
+                scheduleReconnect()
             }
         }
+    }
+
+    private fun scheduleReconnect() {
+        if (reconnectScheduled) return
+        reconnectScheduled = true
+        reconnectHandler.postDelayed(reconnectTask, 2000L)
     }
 
     private fun readLoop(s: Socket, reader: BufferedReader) {
@@ -124,6 +148,7 @@ class BridgeService : Service() {
                 writer = null
                 AudioClient.stop(this)
                 broadcast("CONNECTION:DISCONNECTED")
+                scheduleReconnect()
             }
         }
     }
@@ -134,14 +159,19 @@ class BridgeService : Service() {
             val s = socket
             if (s == null || s.isClosed || w == null) {
                 broadcast("ERROR:NOT_CONNECTED")
+                scheduleReconnect()
                 return@execute
             }
             try {
                 w.println(command)
                 w.flush()
-                if (w.checkError()) broadcast("ERROR:SEND_FAILED")
+                if (w.checkError()) {
+                    broadcast("ERROR:SEND_FAILED")
+                    scheduleReconnect()
+                }
             } catch (e: Exception) {
                 broadcast("ERROR:SEND_FAILED:${e.javaClass.simpleName}")
+                scheduleReconnect()
             }
         }
     }
@@ -208,6 +238,7 @@ class BridgeService : Service() {
     override fun onBind(intent: Intent?): IBinder? = null
 
     override fun onDestroy() {
+        reconnectHandler.removeCallbacks(reconnectTask)
         AudioClient.stop(this)
         closeSocket()
         io.shutdownNow()
