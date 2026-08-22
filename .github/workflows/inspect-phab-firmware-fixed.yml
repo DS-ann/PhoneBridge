@@ -17,59 +17,56 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Cache firmware
+      - name: Restore cached system image
+        id: system-cache
         uses: actions/cache@v4
         with:
-          path: cache/firmware
-          key: phab-firmware-cache-v1
+          path: cache/system
+          key: phab-system-image-v1
 
       - name: Prepare
         shell: bash
         run: |
           set -euo pipefail
-          mkdir -p cache/firmware work extracted/diagnostics extracted/system
+          mkdir -p cache/system work extracted/diagnostics extracted/system
 
-      - name: Download firmware if needed
+      - name: Download firmware and extract system image on cache miss
+        if: steps.system-cache.outputs.cache-hit != 'true'
         shell: bash
         env:
           FIRMWARE_URL: ${{ inputs.firmware_url }}
         run: |
           set -euo pipefail
-          archive="cache/firmware/firmware.zip"
-          if [ ! -s "$archive" ]; then
-            curl -L --fail --retry 3 "$FIRMWARE_URL" -o "$archive"
-          else
-            echo "Using cached firmware."
+          mkdir -p work/download
+          archive="work/download/firmware.zip"
+          curl -L --fail --retry 3 "$FIRMWARE_URL" -o "$archive"
+          unzip -j -o "$archive" '*system-sign.img' -d cache/system || true
+          if [ ! -s cache/system/system-sign.img ]; then
+            echo "system-sign.img was not found in the firmware archive."
+            exit 1
           fi
-          ls -lh "$archive"
+          ls -lh cache/system/system-sign.img
 
-      - name: Extract system image
+      - name: Use cached system image
         shell: bash
         run: |
           set -euo pipefail
-          rm -f work/system-sign.img work/system.img work/image-path.txt
-          unzip -j -o cache/firmware/firmware.zip '*system-sign.img' -d work || true
-          if [ -s work/system-sign.img ]; then
-            echo "work/system-sign.img" > work/image-path.txt
-          else
-            unzip -j -o cache/firmware/firmware.zip '*system.img' -d work || true
-            if [ -s work/system.img ]; then
-              echo "work/system.img" > work/image-path.txt
-            else
-              echo "No system image found."
-              exit 1
-            fi
+          if [ ! -s cache/system/system-sign.img ]; then
+            echo "Cached system-sign.img is missing."
+            exit 1
           fi
+          cp cache/system/system-sign.img work/system-sign.img
+          echo "Using system-sign.img from cache."
+          ls -lh work/system-sign.img
 
       - name: Inspect image
         shell: bash
         run: |
           set -euo pipefail
-          img="$(cat work/image-path.txt)"
-          python3 scripts/inspect_phab_system_image.py "$img" work/system-payload.img extracted/diagnostics/bfbf-header.txt extracted/diagnostics/ext4-scan.txt
-          file "$img" > extracted/diagnostics/file.txt || true
-          stat -c 'size=%s bytes' "$img" > extracted/diagnostics/size.txt
-          xxd -l 512 "$img" > extracted/diagnostics/header.txt || true
+          python3 scripts/inspect_phab_system_image.py work/system-sign.img work/system-payload.img extracted/diagnostics/bfbf-header.txt extracted/diagnostics/ext4-scan.txt
+          file work/system-sign.img > extracted/diagnostics/file.txt || true
+          stat -c 'size=%s bytes' work/system-sign.img > extracted/diagnostics/size.txt
+          xxd -l 512 work/system-sign.img > extracted/diagnostics/header.txt || true
           cat extracted/diagnostics/bfbf-header.txt || true
           cat extracted/diagnostics/ext4-scan.txt || true
 
@@ -82,9 +79,8 @@ jobs:
             exit 0
           fi
           read -r start bs blocks < work/ext4-selection.txt
-          img="$(cat work/image-path.txt)"
           bytes=$((bs * blocks))
-          dd if="$img" of=work/system-ext4.img bs=1 skip="$start" count="$bytes" status=none
+          dd if="work/system-payload.img" of=work/system-ext4.img bs=1 skip="$start" count="$bytes" status=none
           for f in audio_policy.conf audio_policy_configuration.xml audio_effects.conf audio_platform_info.xml; do
             debugfs -R "dump /etc/$f extracted/system/$f" work/system-ext4.img >/dev/null 2>&1 || true
           done
