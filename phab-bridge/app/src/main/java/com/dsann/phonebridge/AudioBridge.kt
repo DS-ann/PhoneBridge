@@ -2,9 +2,9 @@ package com.dsann.phonebridge
 
 import android.content.Context
 import android.media.AudioFormat
-import android.media.AudioManager
 import android.media.AudioRecord
 import android.media.AudioTrack
+import android.media.AudioManager
 import android.media.MediaRecorder
 import java.net.DatagramPacket
 import java.net.DatagramSocket
@@ -12,167 +12,87 @@ import java.net.InetAddress
 import java.util.concurrent.Executors
 import java.util.concurrent.atomic.AtomicBoolean
 
-/**
- * Two-way Wi-Fi audio transport for the bridge.
- *
- * The receive side deliberately uses STREAM_VOICE_CALL and puts the phone
- * into IN_CALL mode while the bridge is active. This gives the MediaTek
- * audio HAL the best possible chance to treat received Pad audio as call
- * voice audio instead of normal/media playback.
- *
- * Important: Android's public AudioTrack API does not provide a guaranteed
- * API for injecting PCM into the cellular modem uplink. If the vendor HAL
- * keeps STREAM_VOICE_CALL playback on the downlink, the Pad microphone will
- * still be heard locally rather than by the remote caller. In that case a
- * HAL/kernel-level injection path is required; this file does not modify
- * the phone firmware.
- */
+/** Pure two-way Wi-Fi PCM audio bridge. No telephony/call handling. */
 object AudioBridge {
     private const val SAMPLE_RATE = 8000
-    private const val FRAME_SAMPLES = 160 // 20 ms
+    private const val FRAME_SAMPLES = 160
     private const val FRAME_BYTES = FRAME_SAMPLES * 2
+    private const val AUDIO_PORT = 45822
     private val running = AtomicBoolean(false)
-    private val executor = Executors.newFixedThreadPool(3)
+    private val executor = Executors.newFixedThreadPool(2)
     private var socket: DatagramSocket? = null
-    private var previousAudioMode = AudioManager.MODE_NORMAL
 
-    @Synchronized fun start(context: Context, address: InetAddress, remotePort: Int, localPort: Int): Boolean {
-        if (running.get()) return false
-        running.set(true)
-
-        val am = context.getSystemService(Context.AUDIO_SERVICE) as AudioManager
-        synchronized(this) {
-            previousAudioMode = am.mode
-            try {
-                am.mode = AudioManager.MODE_IN_CALL
-                am.isSpeakerphoneOn = false
-            } catch (_: Throwable) { }
+    @Synchronized
+    fun start(context: Context, address: InetAddress, remotePort: Int, localPort: Int = AUDIO_PORT): Boolean {
+        if (!running.compareAndSet(false, true)) return false
+        try { socket = DatagramSocket(localPort).apply { reuseAddress = true } }
+        catch (e: Throwable) {
+            running.set(false)
+            setStatus(context, "ERROR:UDP:${e.message ?: "socket failed"}")
+            return false
         }
+        val s = socket!!
+        setStatus(context, "RUNNING")
 
+        // Phab microphone -> Wi-Fi -> Pad speaker.
         executor.execute {
             var record: AudioRecord? = null
             try {
-                val min = AudioRecord.getMinBufferSize(
-                    SAMPLE_RATE,
-                    AudioFormat.CHANNEL_IN_MONO,
-                    AudioFormat.ENCODING_PCM_16BIT
-                )
-                if (min <= 0) throw IllegalStateException("AUDIO_INPUT_UNAVAILABLE")
-
-                record = AudioRecord(
-                    MediaRecorder.AudioSource.VOICE_COMMUNICATION,
-                    SAMPLE_RATE,
-                    AudioFormat.CHANNEL_IN_MONO,
-                    AudioFormat.ENCODING_PCM_16BIT,
-                    maxOf(min, FRAME_BYTES * 4)
-                )
-                if (record.state != AudioRecord.STATE_INITIALIZED) {
-                    throw IllegalStateException("VOICE_COMMUNICATION_INPUT_UNAVAILABLE")
-                }
-
-                synchronized(this) { socket = DatagramSocket(localPort) }
-                val s = socket ?: throw IllegalStateException("UDP_SOCKET_FAILED")
-                context.getSharedPreferences(BridgeService.PREFS, Context.MODE_PRIVATE)
-                    .edit().putString("audio_wifi", "RUNNING:CALL_MODE").apply()
-
+                val min = AudioRecord.getMinBufferSize(SAMPLE_RATE, AudioFormat.CHANNEL_IN_MONO, AudioFormat.ENCODING_PCM_16BIT)
+                require(min > 0) { "AUDIO_INPUT_UNAVAILABLE" }
+                record = AudioRecord(MediaRecorder.AudioSource.VOICE_COMMUNICATION, SAMPLE_RATE, AudioFormat.CHANNEL_IN_MONO, AudioFormat.ENCODING_PCM_16BIT, maxOf(min, FRAME_BYTES * 4))
+                check(record.state == AudioRecord.STATE_INITIALIZED) { "AUDIO_INPUT_NOT_INITIALIZED" }
                 record.startRecording()
-                val buffer = ByteArray(FRAME_BYTES)
-                val shorts = ShortArray(FRAME_SAMPLES)
+                val pcm = ShortArray(FRAME_SAMPLES)
+                val bytes = ByteArray(FRAME_BYTES)
                 while (running.get()) {
-                    val n = record.read(shorts, 0, FRAME_SAMPLES)
-                    if (n > 0) {
+                    val n = record.read(pcm, 0, pcm.size)
+                    if (n > 0 && running.get()) {
                         var p = 0
-                        for (i in 0 until n) {
-                            val v = shorts[i].toInt()
-                            buffer[p++] = (v and 0xff).toByte()
-                            buffer[p++] = ((v ushr 8) and 0xff).toByte()
-                        }
-                        s.send(DatagramPacket(buffer, n * 2, address, remotePort))
+                        for (i in 0 until n) { val v = pcm[i].toInt(); bytes[p++] = (v and 0xff).toByte(); bytes[p++] = ((v ushr 8) and 0xff).toByte() }
+                        s.send(DatagramPacket(bytes, n * 2, address, remotePort))
                     }
                 }
             } catch (e: Throwable) {
-                context.getSharedPreferences(BridgeService.PREFS, Context.MODE_PRIVATE)
-                    .edit().putString("audio_wifi", "ERROR:${e.javaClass.simpleName}:${e.message ?: ""}").apply()
-            } finally {
-                try { record?.stop() } catch (_: Throwable) { }
-                try { record?.release() } catch (_: Throwable) { }
-            }
+                if (running.get()) setStatus(context, "ERROR:MIC:${e.javaClass.simpleName}:${e.message ?: ""}")
+            } finally { try { record?.stop() } catch (_: Throwable) {}; try { record?.release() } catch (_: Throwable) {} }
         }
 
+        // Pad microphone -> Wi-Fi -> Phab speaker.
         executor.execute {
             var track: AudioTrack? = null
             try {
-                val min = AudioTrack.getMinBufferSize(
-                    SAMPLE_RATE,
-                    AudioFormat.CHANNEL_OUT_MONO,
-                    AudioFormat.ENCODING_PCM_16BIT
-                )
-                if (min <= 0) throw IllegalStateException("AUDIO_OUTPUT_UNAVAILABLE")
-
-                track = AudioTrack(
-                    AudioManager.STREAM_VOICE_CALL,
-                    SAMPLE_RATE,
-                    AudioFormat.CHANNEL_OUT_MONO,
-                    AudioFormat.ENCODING_PCM_16BIT,
-                    maxOf(min, FRAME_BYTES * 4),
-                    AudioTrack.MODE_STREAM
-                )
-                if (track.state != AudioTrack.STATE_INITIALIZED) {
-                    throw IllegalStateException("VOICE_OUTPUT_UNAVAILABLE")
-                }
-
-                val s = socket ?: waitForSocket()
+                val min = AudioTrack.getMinBufferSize(SAMPLE_RATE, AudioFormat.CHANNEL_OUT_MONO, AudioFormat.ENCODING_PCM_16BIT)
+                require(min > 0) { "AUDIO_OUTPUT_UNAVAILABLE" }
+                track = AudioTrack(AudioManager.STREAM_MUSIC, SAMPLE_RATE, AudioFormat.CHANNEL_OUT_MONO, AudioFormat.ENCODING_PCM_16BIT, maxOf(min, FRAME_BYTES * 8), AudioTrack.MODE_STREAM)
+                check(track.state == AudioTrack.STATE_INITIALIZED) { "AUDIO_OUTPUT_NOT_INITIALIZED" }
                 track.play()
                 val packet = ByteArray(2048)
                 val datagram = DatagramPacket(packet, packet.size)
-
                 while (running.get()) {
                     datagram.length = packet.size
                     s.receive(datagram)
-                    if (datagram.length > 0) {
+                    if (datagram.length > 0 && running.get()) {
                         val samples = datagram.length / 2
                         val pcm = ShortArray(samples)
-                        for (i in 0 until samples) {
-                            val lo = packet[i * 2].toInt() and 0xff
-                            val hi = packet[i * 2 + 1].toInt()
-                            pcm[i] = ((hi shl 8) or lo).toShort()
-                        }
+                        for (i in 0 until samples) { val lo = packet[i * 2].toInt() and 0xff; val hi = packet[i * 2 + 1].toInt(); pcm[i] = ((hi shl 8) or lo).toShort() }
                         track.write(pcm, 0, pcm.size)
                     }
                 }
             } catch (e: Throwable) {
-                if (running.get()) {
-                    context.getSharedPreferences(BridgeService.PREFS, Context.MODE_PRIVATE)
-                        .edit().putString("audio_wifi", "ERROR:${e.javaClass.simpleName}:${e.message ?: ""}").apply()
-                }
-            } finally {
-                try { track?.stop() } catch (_: Throwable) { }
-                try { track?.release() } catch (_: Throwable) { }
-            }
+                if (running.get()) setStatus(context, "ERROR:SPEAKER:${e.javaClass.simpleName}:${e.message ?: ""}")
+            } finally { try { track?.stop() } catch (_: Throwable) {}; try { track?.release() } catch (_: Throwable) {} }
         }
         return true
     }
 
-    private fun waitForSocket(): DatagramSocket {
-        repeat(100) {
-            socket?.let { return it }
-            Thread.sleep(10)
-        }
-        throw IllegalStateException("UDP_SOCKET_NOT_READY")
-    }
+    private fun setStatus(context: Context, value: String) = context.getSharedPreferences(BridgeService.PREFS, Context.MODE_PRIVATE).edit().putString("audio_wifi", value).apply()
 
     @Synchronized fun stop(context: Context) {
         running.set(false)
-        try { socket?.close() } catch (_: Throwable) { }
+        try { socket?.close() } catch (_: Throwable) {}
         socket = null
-
-        try {
-            val am = context.getSystemService(Context.AUDIO_SERVICE) as AudioManager
-            am.mode = previousAudioMode
-        } catch (_: Throwable) { }
-
-        context.getSharedPreferences(BridgeService.PREFS, Context.MODE_PRIVATE)
-            .edit().putString("audio_wifi", "STOPPED").apply()
+        setStatus(context, "STOPPED")
     }
 
     fun isRunning(): Boolean = running.get()
