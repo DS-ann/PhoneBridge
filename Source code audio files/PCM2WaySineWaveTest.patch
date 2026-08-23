@@ -1,0 +1,17 @@
+diff --git a/Source code audio files/SpeechPcm2way.cpp b/Source code audio files/SpeechPcm2way.cpp
+--- a/Source code audio files/SpeechPcm2way.cpp
++++ b/Source code audio files/SpeechPcm2way.cpp
+@@ -10,6 +10,16 @@
+ #define AUDIO_INPUT_BUFFER_SIZE  (16384) // 16k
+ #define AUDIO_OUTPUT_BUFFER_SIZE (16384) // 16k
+ 
++/*
++ * Isolated PCM2Way diagnostic.
++ * When enabled, PutDataToSpeaker() supplies the built-in 1 kHz / 8 kHz
++ * waveform instead of consuming the normal Play2Way output buffer.
++ * Disable after the diagnostic test.
++ */
++#define PLAY2WAY_USE_SINE_WAVE 1
++
+ namespace android
+ {
