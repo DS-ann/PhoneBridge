@@ -4,8 +4,6 @@ import android.app.Activity
 import android.bluetooth.BluetoothAdapter
 import android.bluetooth.BluetoothDevice
 import android.bluetooth.BluetoothProfile
-import android.content.ComponentName
-import android.content.Intent
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
@@ -20,6 +18,7 @@ class MainActivity : Activity() {
     private var headsetClientProxy: BluetoothProfile? = null
     private var proxyListener: BluetoothProfile.ServiceListener? = null
     private var selectedDevice: BluetoothDevice? = null
+    private var clientProfileId = -1
 
     private val adapter: BluetoothAdapter? get() = BluetoothAdapter.getDefaultAdapter()
 
@@ -33,14 +32,9 @@ class MainActivity : Activity() {
     }
 
     private fun runDiagnostic() {
-        val b = adapter
-        if (b == null) {
-            report.text = "Bluetooth adapter: NOT PRESENT"
-            return
-        }
-
+        val b = adapter ?: run { report.text = "Bluetooth adapter: NOT PRESENT"; return }
         val out = StringBuilder()
-        out.appendLine("PhoneBridge HFP Diagnostic – Redmi HFP Client + Service Probe")
+        out.appendLine("PhoneBridge HFP Diagnostic v3")
         out.appendLine("Android: ${android.os.Build.VERSION.RELEASE} (API ${android.os.Build.VERSION.SDK_INT})")
         out.appendLine("Device: ${android.os.Build.MANUFACTURER} ${android.os.Build.MODEL}")
         out.appendLine()
@@ -48,40 +42,21 @@ class MainActivity : Activity() {
         out.appendLine("Enabled: ${b.isEnabled}")
         out.appendLine("Name: ${safeName(b)}")
         out.appendLine()
-
         out.appendLine("LOCAL Bluetooth UUIDs / service records")
-        val localUuids = getLocalUuids(b)
-        if (localUuids.isEmpty()) {
-            out.appendLine("none/hidden/not exposed to app")
-        } else {
-            localUuids.forEach { out.appendLine(it) }
-            out.appendLine("HFP/HSP local role classification: ${classify(localUuids)}")
-        }
-
+        val uuids = getLocalUuids(b)
+        if (uuids.isEmpty()) out.appendLine("none/hidden/not exposed to app")
+        else { uuids.forEach(out::appendLine); out.appendLine("HFP/HSP local role classification: ${classify(uuids)}") }
         out.appendLine()
         out.appendLine("HFP Client framework")
-        val clientId = try {
-            BluetoothProfile::class.java.getField("HEADSET_CLIENT").getInt(null)
-        } catch (_: Throwable) { -1 }
-        out.appendLine("HEADSET_CLIENT profile ID: ${if (clientId >= 0) clientId else "not available"}")
-        try {
-            Class.forName("android.bluetooth.BluetoothHeadsetClient")
-            out.appendLine("BluetoothHeadsetClient class: PRESENT")
-        } catch (t: Throwable) {
-            out.appendLine("BluetoothHeadsetClient class: NOT PRESENT (${t.javaClass.simpleName})")
-        }
-
+        clientProfileId = try { BluetoothProfile::class.java.getField("HEADSET_CLIENT").getInt(null) } catch (_: Throwable) { -1 }
+        out.appendLine("profile ID: ${if (clientProfileId >= 0) clientProfileId else "not available"}")
+        try { Class.forName("android.bluetooth.BluetoothHeadsetClient"); out.appendLine("BluetoothHeadsetClient class: PRESENT") }
+        catch (t: Throwable) { out.appendLine("BluetoothHeadsetClient class: NOT PRESENT (${t.javaClass.simpleName})") }
         out.appendLine()
-        out.appendLine("HFP Client service/proxy")
-        out.appendLine("proxy: ${if (headsetClientProxy != null) "READY" else "NOT CONNECTED"}")
-        if (selectedDevice != null) {
-            out.appendLine("selected device: ${safeDeviceName(selectedDevice!!)}")
-        }
-        if (clientId >= 0 && headsetClientProxy == null) {
-            out.appendLine("requesting HFP Client proxy...")
-            requestHfpClientProxy(clientId)
-        }
-
+        out.appendLine("HFP Client proxy")
+        out.appendLine("current proxy: ${if (headsetClientProxy != null) "READY" else "NOT CONNECTED"}")
+        out.appendLine("Requesting proxy now...")
+        if (clientProfileId >= 0) requestHfpClientProxy(clientProfileId) else out.appendLine("HEADSET_CLIENT unavailable")
         out.appendLine()
         out.appendLine("System Bluetooth package")
         try {
@@ -89,134 +64,96 @@ class MainActivity : Activity() {
             out.appendLine("installed: yes")
             out.appendLine("versionName: ${pi.versionName}")
             out.appendLine("versionCode: ${pi.longVersionCode}")
-            out.appendLine("package: ${pi.packageName}")
-        } catch (t: Throwable) {
-            out.appendLine("not accessible: ${t.javaClass.simpleName}: ${t.message}")
-        }
-
+        } catch (t: Throwable) { out.appendLine("not accessible: ${t.javaClass.simpleName}: ${t.message}") }
         out.appendLine()
-        out.appendLine("Running-service probes")
-        out.appendLine("HfpClientService class probe: ${classProbe("com.android.bluetooth.hfpclient.HeadsetClientService")}")
-        out.appendLine("HfpClientService alternate probe: ${classProbe("com.android.bluetooth.hfpclient.HeadsetClientService")}")
-        out.appendLine("HeadsetService class probe: ${classProbe("com.android.bluetooth.hfp.HeadsetService")}")
-        out.appendLine("Note: ordinary apps cannot reliably enumerate running system services on stock Android; class presence is not proof that a service is enabled.")
-
+        out.appendLine("Service class probes")
+        out.appendLine("HeadsetClientService: ${classProbe("com.android.bluetooth.hfpclient.HeadsetClientService")}")
+        out.appendLine("HeadsetService: ${classProbe("com.android.bluetooth.hfp.HeadsetService")}")
+        out.appendLine("Note: class presence does not prove the service is running.")
         report.text = out.toString()
     }
 
     private fun requestHfpClientProxy(profileId: Int) {
         try {
+            proxyListener?.let { headsetClientProxy?.let { p -> adapter?.closeProfileProxy(profileId, p) } }
             proxyListener = object : BluetoothProfile.ServiceListener {
                 override fun onServiceConnected(profile: Int, proxy: BluetoothProfile) {
-                    if (profile == profileId) {
-                        headsetClientProxy = proxy
-                        runOnUiThread { appendLine("HFP Client proxy callback: CONNECTED / READY") }
-                    }
+                    if (profile != profileId) return
+                    headsetClientProxy = proxy
+                    appendLine("PROXY CALLBACK: CONNECTED / READY")
+                    appendLine("PROXY class: ${proxy.javaClass.name}")
+                    appendLine("PROXY methods: ${proxy.javaClass.methods.filter { it.name == "connect" || it.name == "getConnectionState" }.joinToString { it.toGenericString() }}")
+                    selectedDevice?.let { handler.postDelayed({ performConnectionProbe(it) }, 300) }
                 }
                 override fun onServiceDisconnected(profile: Int) {
-                    if (profile == profileId) {
-                        headsetClientProxy = null
-                        runOnUiThread { appendLine("HFP Client proxy callback: DISCONNECTED") }
-                    }
+                    if (profile == profileId) { headsetClientProxy = null; appendLine("PROXY CALLBACK: DISCONNECTED") }
                 }
             }
             val ok = adapter?.getProfileProxy(this, proxyListener, profileId) ?: false
             appendLine("getProfileProxy(HFP_CLIENT): $ok")
-        } catch (t: Throwable) {
-            appendLine("getProfileProxy exception: ${t.javaClass.name}: ${t.message}")
-        }
+        } catch (t: Throwable) { appendLine("getProfileProxy exception: ${t.javaClass.name}: ${t.message}") }
     }
 
     private fun connectHfpClient() {
         val b = adapter ?: return
-        val target = try {
-            b.bondedDevices.firstOrNull { safeDeviceName(it).contains("PHAB", true) || safeDeviceName(it).contains("Lenovo", true) }
-        } catch (_: Throwable) { null }
-        if (target == null) {
-            appendLine("CONNECT: Lenovo PHAB2 Plus not found among bonded devices")
-            return
-        }
+        val target = try { b.bondedDevices.firstOrNull { safeDeviceName(it).contains("PHAB", true) || safeDeviceName(it).contains("Lenovo", true) } } catch (_: Throwable) { null }
+        if (target == null) { appendLine("CONNECT: Lenovo PHAB2 Plus not found among bonded devices"); return }
         selectedDevice = target
-        appendLine("CONNECT: target=${safeDeviceName(target)} / ${safeAddress(target)}")
-        if (headsetClientProxy == null) {
-            appendLine("CONNECT: HFP Client proxy not ready; requesting it now")
-            val id = try { BluetoothProfile::class.java.getField("HEADSET_CLIENT").getInt(null) } catch (_: Throwable) { -1 }
-            if (id >= 0) requestHfpClientProxy(id) else appendLine("CONNECT: HEADSET_CLIENT unavailable")
-            handler.postDelayed({ attemptReflectiveConnect(target) }, 1000)
-        } else {
-            attemptReflectiveConnect(target)
-        }
+        appendLine("CONNECT TEST: target=${safeDeviceName(target)} / ${safeAddress(target)}")
+        appendLine("CONNECT TEST: starting proxy request")
+        if (headsetClientProxy != null) performConnectionProbe(target)
+        else if (clientProfileId >= 0) requestHfpClientProxy(clientProfileId) else appendLine("CONNECT TEST: HEADSET_CLIENT unavailable")
     }
 
-    private fun attemptReflectiveConnect(device: BluetoothDevice) {
-        val proxy = headsetClientProxy ?: run {
-            appendLine("CONNECT: proxy still not ready")
-            return
-        }
+    private fun performConnectionProbe(device: BluetoothDevice) {
+        val proxy = headsetClientProxy ?: run { appendLine("CONNECT: proxy still not ready"); return }
+        appendLine("CONNECT: proxy READY; beginning method probe")
+        val connectMethod = proxy.javaClass.methods.firstOrNull { it.name == "connect" && it.parameterTypes.size == 1 && BluetoothDevice::class.java.isAssignableFrom(it.parameterTypes[0]) }
+        val stateMethod = proxy.javaClass.methods.firstOrNull { it.name == "getConnectionState" && it.parameterTypes.size == 1 && BluetoothDevice::class.java.isAssignableFrom(it.parameterTypes[0]) }
+        appendLine("CONNECT: connect(BluetoothDevice) method=${if (connectMethod != null) "FOUND" else "NOT FOUND"}")
+        appendLine("CONNECT: getConnectionState(BluetoothDevice)=${if (stateMethod != null) "FOUND" else "NOT FOUND"}")
         try {
-            val method = proxy.javaClass.methods.firstOrNull { it.name == "connect" && it.parameterTypes.size == 1 }
-            if (method == null) {
-                appendLine("CONNECT: no connect(BluetoothDevice) method exposed by proxy class ${proxy.javaClass.name}")
-                return
-            }
-            method.isAccessible = true
-            val result = method.invoke(proxy, device)
-            appendLine("CONNECT: reflective connect() result=$result")
-            val stateMethod = proxy.javaClass.methods.firstOrNull { it.name == "getConnectionState" && it.parameterTypes.size == 1 }
-            if (stateMethod != null) {
-                stateMethod.isAccessible = true
-                val state = stateMethod.invoke(proxy, device)
-                appendLine("CONNECT: immediate HFP Client connection state=$state")
-                handler.postDelayed({
-                    try {
-                        val later = stateMethod.invoke(proxy, device)
-                        appendLine("CONNECT: state after 2s=$later")
-                    } catch (t: Throwable) { appendLine("CONNECT: delayed state error=${t.javaClass.simpleName}: ${t.message}") }
-                }, 2000)
-            }
+            connectMethod?.isAccessible = true
+            val result = connectMethod?.invoke(proxy, device)
+            appendLine("CONNECT: connect() result=$result")
         } catch (t: Throwable) {
-            appendLine("CONNECT: ${t.javaClass.name}: ${t.message}")
-            t.cause?.let { appendLine("CONNECT cause: ${it.javaClass.name}: ${it.message}") }
+            appendLine("CONNECT: connect() exception=${t.javaClass.name}: ${t.message}")
+            t.cause?.let { appendLine("CONNECT: cause=${it.javaClass.name}: ${it.message}") }
         }
+        readState(proxy, stateMethod, device, "immediate")
+        handler.postDelayed({ readState(proxy, stateMethod, device, "2s") }, 2000)
+        handler.postDelayed({ readState(proxy, stateMethod, device, "5s") }, 5000)
     }
 
-    private fun classProbe(name: String): String = try {
-        Class.forName(name)
-        "PRESENT"
-    } catch (t: Throwable) { "NOT PRESENT (${t.javaClass.simpleName})" }
-
-    private fun appendLine(s: String) {
-        runOnUiThread { report.append("\n$s") }
+    private fun readState(proxy: BluetoothProfile, method: java.lang.reflect.Method?, device: BluetoothDevice, label: String) {
+        if (method == null) { appendLine("CONNECT: $label state unavailable"); return }
+        try { method.isAccessible = true; appendLine("CONNECT: $label state=${method.invoke(proxy, device)}") }
+        catch (t: Throwable) { appendLine("CONNECT: $label state exception=${t.javaClass.name}: ${t.message}") }
     }
+
+    private fun classProbe(name: String): String = try { Class.forName(name); "PRESENT" } catch (t: Throwable) { "NOT PRESENT (${t.javaClass.simpleName})" }
+    private fun appendLine(s: String) { runOnUiThread { report.append("\n$s") } }
 
     private fun getLocalUuids(adapter: BluetoothAdapter): List<String> = try {
-        val method = BluetoothAdapter::class.java.getDeclaredMethod("getUuids")
-        method.isAccessible = true
-        val result = method.invoke(adapter) as? Array<*>
-        result?.mapNotNull { r ->
-            try { r?.javaClass?.getField("uuid")?.get(r)?.toString() } catch (_: Throwable) { r?.toString() }
-        } ?: emptyList()
+        val m = BluetoothAdapter::class.java.getDeclaredMethod("getUuids"); m.isAccessible = true
+        val result = m.invoke(adapter) as? Array<*>
+        result?.mapNotNull { r -> try { r?.javaClass?.getField("uuid")?.get(r)?.toString() } catch (_: Throwable) { r?.toString() } } ?: emptyList()
     } catch (_: Throwable) { emptyList() }
 
     private fun classify(values: List<String>): String {
-        val s = values.map { it.lowercase(Locale.US) }
-        val r = mutableListOf<String>()
+        val s = values.map { it.lowercase(Locale.US) }; val r = mutableListOf<String>()
         if (s.any { it.startsWith("0000111e-") }) r += "HF"
         if (s.any { it.startsWith("0000111f-") }) r += "AG"
         if (s.any { it.startsWith("00001108-") }) r += "HSP_HEADSET"
         if (s.any { it.startsWith("00001112-") }) r += "HSP_AG"
         return if (r.isEmpty()) "No standard HFP/HSP UUID visible" else r.joinToString(", ")
     }
-
     private fun safeName(b: BluetoothAdapter): String = try { b.name ?: "unknown" } catch (_: SecurityException) { "permission denied" }
     private fun safeDeviceName(d: BluetoothDevice): String = try { d.name ?: "unknown" } catch (_: SecurityException) { "permission denied" }
     private fun safeAddress(d: BluetoothDevice): String = try { d.address } catch (_: SecurityException) { "permission denied" }
 
     override fun onDestroy() {
         super.onDestroy()
-        try {
-            val id = BluetoothProfile::class.java.getField("HEADSET_CLIENT").getInt(null)
-            headsetClientProxy?.let { adapter?.closeProfileProxy(id, it) }
-        } catch (_: Throwable) { }
+        try { if (clientProfileId >= 0) headsetClientProxy?.let { adapter?.closeProfileProxy(clientProfileId, it) } } catch (_: Throwable) { }
     }
 }
