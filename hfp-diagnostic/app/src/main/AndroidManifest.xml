@@ -10,7 +10,7 @@
         android:allowBackup="false"
         android:supportsRtl="true">
         <activity
-            android:name=".MainActivity"
+            android:name=".PhabAgDiagnosticActivity"
             android:exported="true">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
