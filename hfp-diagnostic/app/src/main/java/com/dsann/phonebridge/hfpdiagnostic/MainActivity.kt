@@ -1,15 +1,17 @@
 package com.dsann.phonebridge.hfpdiagnostic
 
+import android.Manifest
 import android.app.Activity
 import android.bluetooth.BluetoothAdapter
 import android.bluetooth.BluetoothDevice
 import android.bluetooth.BluetoothProfile
+import android.content.pm.PackageManager
+import android.os.Build
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
 import android.widget.Button
 import android.widget.TextView
-import java.util.Locale
 
 class MainActivity : Activity() {
     private lateinit var report: TextView
@@ -18,15 +20,44 @@ class MainActivity : Activity() {
     private var proxyListener: BluetoothProfile.ServiceListener? = null
     private var selectedDevice: BluetoothDevice? = null
     private var clientProfileId = -1
+    private val permissionRequestCode = 7001
+
     private val adapter: BluetoothAdapter? get() = BluetoothAdapter.getDefaultAdapter()
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
         report = findViewById(R.id.report)
-        findViewById<Button>(R.id.run).setOnClickListener { runDiagnostic() }
+        findViewById<Button>(R.id.run).setOnClickListener { startDiagnosticWithPermissionCheck() }
         findViewById<Button>(R.id.connect).setOnClickListener { connectHfpClient() }
+        startDiagnosticWithPermissionCheck()
+    }
+
+    private fun bluetoothPermissions(): Array<String> {
+        return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            arrayOf(Manifest.permission.BLUETOOTH_CONNECT, Manifest.permission.BLUETOOTH_SCAN)
+        } else emptyArray()
+    }
+
+    private fun hasBluetoothPermissions(): Boolean {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S) return true
+        return bluetoothPermissions().all { checkSelfPermission(it) == PackageManager.PERMISSION_GRANTED }
+    }
+
+    private fun startDiagnosticWithPermissionCheck() {
+        if (!hasBluetoothPermissions()) {
+            report.text = "PhoneBridge HFP Client Probe v3\n\nBluetooth permissions are required.\nRequesting BLUETOOTH_CONNECT and BLUETOOTH_SCAN..."
+            requestPermissions(bluetoothPermissions(), permissionRequestCode)
+            return
+        }
         runDiagnostic()
+    }
+
+    override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<out String>, grantResults: IntArray) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults)
+        if (requestCode != permissionRequestCode) return
+        if (hasBluetoothPermissions()) runDiagnostic()
+        else report.text = "PhoneBridge HFP Client Probe v3\n\nBluetooth permissions: DENIED\nPlease allow Nearby devices permission in Android Settings and press RUN again."
     }
 
     private fun runDiagnostic() {
@@ -34,16 +65,19 @@ class MainActivity : Activity() {
         val out = StringBuilder()
         out.appendLine("PhoneBridge HFP Client Probe v3")
         out.appendLine("Reason: Manual test")
-        out.appendLine("Android: ${android.os.Build.VERSION.RELEASE} (API ${android.os.Build.VERSION.SDK_INT})")
-        out.appendLine("Device: ${android.os.Build.MANUFACTURER} ${android.os.Build.MODEL}")
+        out.appendLine("Android: ${Build.VERSION.RELEASE} (API ${Build.VERSION.SDK_INT})")
+        out.appendLine("Device: ${Build.MANUFACTURER} ${Build.MODEL}")
         out.appendLine()
+        out.appendLine("Bluetooth permissions: GRANTED")
         out.appendLine("Bluetooth adapter: PRESENT")
         out.appendLine("Enabled: ${b.isEnabled}")
         out.appendLine("Name: ${safeName(b)}")
         out.appendLine()
         out.appendLine("Paired devices")
         try {
-            b.bondedDevices.forEach { out.appendLine("  ${safeDeviceName(it)} / ${safeAddress(it)} / bond=${it.bondState}") }
+            val devices = b.bondedDevices
+            if (devices.isEmpty()) out.appendLine("  none")
+            else devices.forEach { out.appendLine("  ${safeDeviceName(it)} / ${safeAddress(it)} / bond=${it.bondState}") }
         } catch (t: Throwable) { out.appendLine("  unavailable: ${t.javaClass.simpleName}: ${t.message}") }
         out.appendLine()
         out.appendLine("HFP Client framework")
@@ -92,8 +126,9 @@ class MainActivity : Activity() {
     }
 
     private fun connectHfpClient() {
+        if (!hasBluetoothPermissions()) { startDiagnosticWithPermissionCheck(); return }
         val b = adapter ?: return
-        val target = try { b.bondedDevices.firstOrNull { safeDeviceName(it).contains("PHAB", true) || safeDeviceName(it).contains("Lenovo", true) } } catch (_: Throwable) { null }
+        val target = try { b.bondedDevices.firstOrNull { safeDeviceName(it).contains("PHAB", true) || safeDeviceName(it).contains("Lenovo", true) } } catch (t: Throwable) { appendLine("CONNECT TEST: paired-device access failed: ${t.message}"); null }
         if (target == null) { appendLine("CONNECT TEST: Lenovo PHAB2 Plus not found among bonded devices"); return }
         selectedDevice = target
         appendLine("CONNECT TEST: target=${safeDeviceName(target)} / ${safeAddress(target)}")
@@ -104,15 +139,14 @@ class MainActivity : Activity() {
 
     private fun performConnectionProbe(device: BluetoothDevice) {
         val proxy = headsetClientProxy ?: run { appendLine("CONNECT: proxy still not ready"); return }
-        appendLine("CONNECT: proxy READY; beginning method probe")
         val connectMethod = findConnectMethod(proxy)
         val stateMethod = findStateMethod(proxy)
+        appendLine("CONNECT: proxy READY; beginning method probe")
         appendLine("CONNECT: connect(BluetoothDevice) method=${if (connectMethod != null) "FOUND" else "NOT FOUND"}")
         appendLine("CONNECT: getConnectionState(BluetoothDevice)=${if (stateMethod != null) "FOUND" else "NOT FOUND"}")
         try {
             connectMethod?.isAccessible = true
-            val result = connectMethod?.invoke(proxy, device)
-            appendLine("CONNECT: connect() result=$result")
+            appendLine("CONNECT: connect() result=${connectMethod?.invoke(proxy, device)}")
         } catch (t: Throwable) {
             appendLine("CONNECT: connect() exception=${t.javaClass.name}: ${t.message}")
             t.cause?.let { appendLine("CONNECT: cause=${it.javaClass.name}: ${it.message}") }
@@ -124,21 +158,15 @@ class MainActivity : Activity() {
 
     private fun findConnectMethod(proxy: BluetoothProfile) = proxy.javaClass.methods.firstOrNull { it.name == "connect" && it.parameterTypes.size == 1 && BluetoothDevice::class.java.isAssignableFrom(it.parameterTypes[0]) }
     private fun findStateMethod(proxy: BluetoothProfile) = proxy.javaClass.methods.firstOrNull { it.name == "getConnectionState" && it.parameterTypes.size == 1 && BluetoothDevice::class.java.isAssignableFrom(it.parameterTypes[0]) }
-
     private fun readState(proxy: BluetoothProfile, method: java.lang.reflect.Method?, device: BluetoothDevice, label: String) {
         if (method == null) { appendLine("CONNECT: $label state unavailable"); return }
         try { method.isAccessible = true; appendLine("CONNECT: $label state=${method.invoke(proxy, device)}") }
         catch (t: Throwable) { appendLine("CONNECT: $label state exception=${t.javaClass.name}: ${t.message}") }
     }
-
     private fun classProbe(name: String): String = try { Class.forName(name); "PRESENT" } catch (t: Throwable) { "NOT PRESENT (${t.javaClass.simpleName})" }
     private fun appendLine(s: String) { runOnUiThread { report.append("\n$s") } }
     private fun safeName(b: BluetoothAdapter): String = try { b.name ?: "unknown" } catch (_: SecurityException) { "permission denied" }
     private fun safeDeviceName(d: BluetoothDevice): String = try { d.name ?: "unknown" } catch (_: SecurityException) { "permission denied" }
     private fun safeAddress(d: BluetoothDevice): String = try { d.address } catch (_: SecurityException) { "permission denied" }
-
-    override fun onDestroy() {
-        try { if (clientProfileId >= 0) headsetClientProxy?.let { adapter?.closeProfileProxy(clientProfileId, it) } } catch (_: Throwable) { }
-        super.onDestroy()
-    }
+    override fun onDestroy() { try { if (clientProfileId >= 0) headsetClientProxy?.let { adapter?.closeProfileProxy(clientProfileId, it) } } catch (_: Throwable) { }; super.onDestroy() }
 }
