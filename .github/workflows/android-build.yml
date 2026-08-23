@@ -1,4 +1,4 @@
-name: Android HFP Diagnostic Build
+name: PhoneBridge Audio Build
 
 on:
   push:
@@ -11,7 +11,7 @@ permissions:
   contents: read
 
 jobs:
-  build-hfp-diagnostic:
+  build-audio-bridges:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -25,19 +25,29 @@ jobs:
           cache: gradle
 
       - name: Install Gradle 8.7
-        working-directory: hfp-diagnostic
         run: |
           curl -fsSL https://services.gradle.org/distributions/gradle-8.7-bin.zip -o /tmp/gradle.zip
           unzip -q /tmp/gradle.zip -d /tmp/gradle
           echo "/tmp/gradle/gradle-8.7/bin" >> "$GITHUB_PATH"
 
-      - name: Build HFP Diagnostic debug APK
-        working-directory: hfp-diagnostic
+      - name: Build Phab audio bridge
+        working-directory: phab-bridge
         run: gradle --no-daemon --stacktrace assembleDebug
 
-      - name: Upload HFP Diagnostic APK
+      - name: Build Pad audio bridge
+        working-directory: pad-client
+        run: gradle --no-daemon --stacktrace assembleDebug
+
+      - name: Upload Phab APK
         uses: actions/upload-artifact@v4
         with:
-          name: phonebridge-hfp-diagnostic-debug
-          path: hfp-diagnostic/app/build/outputs/apk/debug/app-debug.apk
+          name: phonebridge-phab-audio-debug
+          path: phab-bridge/app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: error
+
+      - name: Upload Pad APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: phonebridge-pad-audio-debug
+          path: pad-client/app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
