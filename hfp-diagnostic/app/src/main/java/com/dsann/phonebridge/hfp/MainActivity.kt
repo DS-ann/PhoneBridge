@@ -7,6 +7,7 @@ import android.bluetooth.BluetoothProfile
 import android.os.Bundle
 import android.widget.Button
 import android.widget.TextView
+import com.dsann.phonebridge.hfpdiagnostic.R
 import java.util.Locale
 
 class MainActivity : Activity() {
@@ -110,8 +111,6 @@ class MainActivity : Activity() {
 
     private fun getLocalUuids(adapter: BluetoothAdapter): List<String> {
         return try {
-            // BluetoothAdapter#getUuids() is hidden on some Android SDK stubs, so
-            // use reflection. This is read-only and may legitimately return null.
             val method = BluetoothAdapter::class.java.getDeclaredMethod("getUuids")
             method.isAccessible = true
             val result = method.invoke(adapter) as? Array<*>
