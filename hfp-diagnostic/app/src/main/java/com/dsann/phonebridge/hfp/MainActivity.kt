@@ -1,11 +1,9 @@
 package com.dsann.phonebridge.hfp
 
-import android.Manifest
 import android.app.Activity
 import android.bluetooth.BluetoothAdapter
 import android.bluetooth.BluetoothDevice
 import android.bluetooth.BluetoothProfile
-import android.content.pm.PackageManager
 import android.os.Bundle
 import android.widget.Button
 import android.widget.TextView
@@ -29,6 +27,7 @@ class MainActivity : Activity() {
             report.text = "Bluetooth adapter: NOT PRESENT"
             return
         }
+
         val out = StringBuilder()
         out.appendLine("PhoneBridge HFP Diagnostic – Redmi Local Profile")
         out.appendLine("Android: ${android.os.Build.VERSION.RELEASE} (API ${android.os.Build.VERSION.SDK_INT})")
@@ -38,55 +37,95 @@ class MainActivity : Activity() {
         out.appendLine("Enabled: ${b.isEnabled}")
         out.appendLine("Name: ${safeName(b)}")
         out.appendLine()
+
         out.appendLine("LOCAL Bluetooth UUIDs / service records")
-        val uuids = try { b.uuids } catch (_: SecurityException) { null }
-        if (uuids.isNullOrEmpty()) {
+        val localUuids = getLocalUuids(b)
+        if (localUuids.isEmpty()) {
             out.appendLine("none/hidden/not exposed to app")
         } else {
-            uuids.forEach { out.appendLine(it.uuid.toString()) }
+            localUuids.forEach { out.appendLine(it) }
             out.appendLine()
-            out.appendLine("HFP/HSP local role classification: ${classify(uuids.map { it.uuid.toString() })}")
+            out.appendLine("HFP/HSP local role classification: ${classify(localUuids)}")
         }
+
         out.appendLine()
         out.appendLine("Role reference")
         out.appendLine("HFP Hands-Free (HF): 0000111e-0000-1000-8000-00805f9b34fb")
         out.appendLine("HFP Audio Gateway (AG): 0000111f-0000-1000-8000-00805f9b34fb")
         out.appendLine("HSP Headset: 00001108-0000-1000-8000-00805f9b34fb")
         out.appendLine("HSP Audio Gateway: 00001112-0000-1000-8000-00805f9b34fb")
+
         out.appendLine()
         out.appendLine("PAIRED DEVICES — remote UUIDs")
-        val bonded = try { b.bondedDevices } catch (_: SecurityException) { emptySet() }
-        if (bonded.isEmpty()) out.appendLine("none/hidden")
+        val bonded = try {
+            b.bondedDevices
+        } catch (_: SecurityException) {
+            emptySet<BluetoothDevice>()
+        }
+
+        if (bonded.isEmpty()) {
+            out.appendLine("none/hidden")
+        }
+
         for (d in bonded) {
             out.appendLine("${safeDeviceName(d)} / ${safeAddress(d)} / bond=${d.bondState}")
-            val ru = try { d.uuids } catch (_: SecurityException) { null }
-            if (ru.isNullOrEmpty()) {
+            val remoteUuids = try {
+                d.uuids?.map { it.uuid.toString() } ?: emptyList()
+            } catch (_: SecurityException) {
+                emptyList()
+            }
+            if (remoteUuids.isEmpty()) {
                 out.appendLine("  Remote UUIDs: none/hidden")
             } else {
-                out.appendLine("  Remote UUIDs: ${ru.joinToString(", ") { it.uuid.toString() }}")
-                out.appendLine("  HFP/HSP classification: ${classify(ru.map { it.uuid.toString() })}")
+                out.appendLine("  Remote UUIDs: ${remoteUuids.joinToString(", ")}")
+                out.appendLine("  HFP/HSP classification: ${classify(remoteUuids)}")
             }
         }
+
         out.appendLine()
         out.appendLine("HFP Client framework probe")
         try {
             val f = BluetoothProfile::class.java.getField("HEADSET_CLIENT")
             out.appendLine("HEADSET_CLIENT profile ID: ${f.getInt(null)}")
+            Class.forName("android.bluetooth.BluetoothHeadsetClient")
             out.appendLine("BluetoothHeadsetClient class: PRESENT")
         } catch (t: Throwable) {
             out.appendLine("HFP Client framework: ${t.javaClass.simpleName}: ${t.message}")
         }
+
         out.appendLine()
         out.appendLine("System Bluetooth package")
         try {
             val pi = packageManager.getPackageInfo("com.android.bluetooth", 0)
             out.appendLine("installed: yes")
             out.appendLine("versionName: ${pi.versionName}")
-            out.appendLine("versionCode: ${pi.longVersionCode}")
+            @Suppress("DEPRECATION")
+            out.appendLine("versionCode: ${pi.versionCode}")
         } catch (t: Throwable) {
-            out.appendLine("not accessible: ${t.javaClass.simpleName}")
+            out.appendLine("not accessible: ${t.javaClass.simpleName}: ${t.message}")
         }
+
         report.text = out.toString()
+    }
+
+    private fun getLocalUuids(adapter: BluetoothAdapter): List<String> {
+        return try {
+            // BluetoothAdapter#getUuids() is hidden on some Android SDK stubs, so
+            // use reflection. This is read-only and may legitimately return null.
+            val method = BluetoothAdapter::class.java.getDeclaredMethod("getUuids")
+            method.isAccessible = true
+            val result = method.invoke(adapter) as? Array<*>
+            result?.mapNotNull { uuidRecord ->
+                try {
+                    val field = uuidRecord!!::class.java.getField("uuid")
+                    field.get(uuidRecord)?.toString()
+                } catch (_: Throwable) {
+                    uuidRecord?.toString()
+                }
+            } ?: emptyList()
+        } catch (_: Throwable) {
+            emptyList()
+        }
     }
 
     private fun classify(values: List<String>): String {
@@ -103,7 +142,21 @@ class MainActivity : Activity() {
         return if (r.isEmpty()) "No standard HFP/HSP UUID visible" else r.joinToString(", ")
     }
 
-    private fun safeName(b: BluetoothAdapter): String = try { b.name ?: "unknown" } catch (_: SecurityException) { "permission denied" }
-    private fun safeDeviceName(d: BluetoothDevice): String = try { d.name ?: "unknown" } catch (_: SecurityException) { "permission denied" }
-    private fun safeAddress(d: BluetoothDevice): String = try { d.address } catch (_: SecurityException) { "permission denied" }
+    private fun safeName(b: BluetoothAdapter): String = try {
+        b.name ?: "unknown"
+    } catch (_: SecurityException) {
+        "permission denied"
+    }
+
+    private fun safeDeviceName(d: BluetoothDevice): String = try {
+        d.name ?: "unknown"
+    } catch (_: SecurityException) {
+        "permission denied"
+    }
+
+    private fun safeAddress(d: BluetoothDevice): String = try {
+        d.address
+    } catch (_: SecurityException) {
+        "permission denied"
+    }
 }
