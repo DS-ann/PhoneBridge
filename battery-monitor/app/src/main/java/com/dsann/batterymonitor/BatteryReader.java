@@ -171,8 +171,8 @@ final class BatteryReader {
 
         String currentText() {
             if (currentUa == Long.MIN_VALUE) return "N/A";
-            return String.format(java.util.Locale.US, "%+d mA",
-                    Math.round(currentUa / 1000.0));
+            return String.format(java.util.Locale.US, "%+.1f mA",
+                    currentUa / 1000.0);
         }
 
         String compact() {
