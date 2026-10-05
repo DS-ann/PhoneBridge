@@ -56,5 +56,5 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: battery-monitor-release
-          path: battery-monitor/app/build/outputs/apk/release/app-release.apk
+          path: battery-monitor/app/build/outputs/apk/release/*.apk
           if-no-files-found: error
