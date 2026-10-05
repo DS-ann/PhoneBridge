@@ -4,6 +4,7 @@ import android.Manifest;
 import android.app.Activity;
 import android.content.Intent;
 import android.content.pm.PackageManager;
+import android.graphics.drawable.GradientDrawable;
 import android.os.Build;
 import android.os.Bundle;
 import android.os.Handler;
@@ -51,69 +52,35 @@ public class MainActivity extends Activity {
         voltage=text("Voltage: --",30);r.addView(voltage,top(24));
         current=text("Current: --",30);r.addView(current,top(12));
 
-        LinearLayout settingsRow=new LinearLayout(this);
-        settingsRow.setOrientation(LinearLayout.HORIZONTAL);
-        settingsRow.setGravity(Gravity.CENTER_VERTICAL);
-        notificationSwitch=new Switch(this);
-        notificationSwitch.setText("Record in background");
-        notificationSwitch.setTextSize(16);
+        LinearLayout settingsRow=new LinearLayout(this);settingsRow.setOrientation(LinearLayout.HORIZONTAL);settingsRow.setGravity(Gravity.CENTER_VERTICAL);
+        notificationSwitch=new Switch(this);notificationSwitch.setText("Record in background");notificationSwitch.setTextSize(16);
         settingsRow.addView(notificationSwitch,new LinearLayout.LayoutParams(0,-2,1));
-
-        LinearLayout rateBox=new LinearLayout(this);
-        rateBox.setOrientation(LinearLayout.VERTICAL);
-        samplingLabel=text("Sampling: 15 s",14);
-        rateBox.addView(samplingLabel,full());
-        samplingBar=new SeekBar(this);
-        samplingBar.setMax(INTERVALS_MS.length-1);
-        rateBox.addView(samplingBar,new LinearLayout.LayoutParams(-1,-2));
-        settingsRow.addView(rateBox,new LinearLayout.LayoutParams(0,-2,1));
-        r.addView(settingsRow,top(28));
+        LinearLayout rateBox=new LinearLayout(this);rateBox.setOrientation(LinearLayout.VERTICAL);
+        samplingLabel=text("Sampling: 15 s",14);rateBox.addView(samplingLabel,full());
+        samplingBar=new SeekBar(this);samplingBar.setMax(INTERVALS_MS.length-1);rateBox.addView(samplingBar,new LinearLayout.LayoutParams(-1,-2));
+        settingsRow.addView(rateBox,new LinearLayout.LayoutParams(0,-2,1));r.addView(settingsRow,top(28));
 
         android.content.SharedPreferences prefs=getSharedPreferences(PREFS,0);
-        long saved=prefs.getLong(KEY_INTERVAL_MS,15000L);
-        int index=indexForInterval(saved);
-        samplingBar.setProgress(index);
-        samplingLabel.setText("Sampling: "+INTERVAL_LABELS[index]);
-        notificationSwitch.setChecked(prefs.getBoolean("notification_enabled",false));
-        samplingBar.setEnabled(notificationSwitch.isChecked());
-
+        int index=indexForInterval(prefs.getLong(KEY_INTERVAL_MS,15000L));
+        samplingBar.setProgress(index);samplingLabel.setText("Sampling: "+INTERVAL_LABELS[index]);
+        notificationSwitch.setChecked(prefs.getBoolean("notification_enabled",false));samplingBar.setEnabled(notificationSwitch.isChecked());
         samplingBar.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener(){
-            public void onProgressChanged(SeekBar b,int progress,boolean fromUser){
-                samplingLabel.setText("Sampling: "+INTERVAL_LABELS[progress]);
-                if(fromUser)getSharedPreferences(PREFS,0).edit().putLong(KEY_INTERVAL_MS,INTERVALS_MS[progress]).apply();
-            }
-            public void onStartTrackingTouch(SeekBar b){}
-            public void onStopTrackingTouch(SeekBar b){}
+            public void onProgressChanged(SeekBar b,int progress,boolean fromUser){samplingLabel.setText("Sampling: "+INTERVAL_LABELS[progress]);if(fromUser)getSharedPreferences(PREFS,0).edit().putLong(KEY_INTERVAL_MS,INTERVALS_MS[progress]).apply();}
+            public void onStartTrackingTouch(SeekBar b){} public void onStopTrackingTouch(SeekBar b){}
         });
-
         r.addView(text("Background recording uses the foreground notification service.",13),top(8));
         notificationSwitch.setOnCheckedChangeListener((b,on)->{
-            getSharedPreferences(PREFS,0).edit().putBoolean("notification_enabled",on).apply();
-            samplingBar.setEnabled(on);
-            if(on){
-                if(Build.VERSION.SDK_INT>=33&&checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS)!=PackageManager.PERMISSION_GRANTED)
-                    requestPermissions(new String[]{Manifest.permission.POST_NOTIFICATIONS},10);
-                startNotificationService();
-            } else stopService(new Intent(this,BatteryNotificationService.class));
-        });
-        return r;
+            getSharedPreferences(PREFS,0).edit().putBoolean("notification_enabled",on).apply();samplingBar.setEnabled(on);
+            if(on){if(Build.VERSION.SDK_INT>=33&&checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS)!=PackageManager.PERMISSION_GRANTED)requestPermissions(new String[]{Manifest.permission.POST_NOTIFICATIONS},10);startNotificationService();}
+            else stopService(new Intent(this,BatteryNotificationService.class));
+        });return r;
     }
-    private int indexForInterval(long ms){
-        int best=0;
-        long diff=Math.abs(INTERVALS_MS[0]-ms);
-        for(int i=1;i<INTERVALS_MS.length;i++){
-            long d=Math.abs(INTERVALS_MS[i]-ms);
-            if(d<diff){diff=d;best=i;}
-        }
-        return best;
-    }
+    private int indexForInterval(long ms){int best=0;long diff=Math.abs(INTERVALS_MS[0]-ms);for(int i=1;i<INTERVALS_MS.length;i++){long d=Math.abs(INTERVALS_MS[i]-ms);if(d<diff){diff=d;best=i;}}return best;}
     private LinearLayout buildHistory(){
         LinearLayout r=new LinearLayout(this);r.setOrientation(LinearLayout.VERTICAL);r.setPadding(dp(16),dp(12),dp(16),dp(12));
-        r.addView(text("Session History",24),full());
-        r.addView(text("Charge/discharge mAh calculated from measured current over time.",13),top(6));
+        r.addView(text("Session History",24),full());r.addView(text("Charge/discharge mAh calculated from measured current over time.",13),top(6));
         Button clear=new Button(this);clear.setText("Clear history");clear.setOnClickListener(v->{SessionStore.clear(this);refreshHistory();});r.addView(clear,top(8));
-        ScrollView s=new ScrollView(this);historyList=new LinearLayout(this);historyList.setOrientation(LinearLayout.VERTICAL);s.addView(historyList);r.addView(s,new LinearLayout.LayoutParams(-1,0,1));
-        return r;
+        ScrollView s=new ScrollView(this);historyList=new LinearLayout(this);historyList.setOrientation(LinearLayout.VERTICAL);s.addView(historyList);r.addView(s,new LinearLayout.LayoutParams(-1,0,1));return r;
     }
     @Override protected void onResume(){super.onResume();updateValues();handler.removeCallbacks(updater);handler.post(updater);if(historyView!=null&&historyView.getVisibility()==View.VISIBLE)refreshHistory();}
     @Override protected void onPause(){handler.removeCallbacks(updater);super.onPause();}
@@ -121,7 +88,14 @@ public class MainActivity extends Activity {
     private void refreshHistory(){
         historyList.removeAllViews();ArrayList<SessionStore.Record> rs=SessionStore.getRecords(this);
         if(rs.isEmpty()){historyList.addView(text("No completed sessions yet.",16));return;}
-        for(SessionStore.Record r:rs){TextView v=text((r.charging?"CHARGED  ":"USED  ")+String.format(java.util.Locale.US,"%.1f mAh",r.mah)+"\n"+r.date()+"  •  "+r.duration(),17);v.setPadding(dp(8),dp(14),dp(8),dp(14));historyList.addView(v,full());}
+        for(SessionStore.Record rec:rs){
+            LinearLayout card=new LinearLayout(this);card.setOrientation(LinearLayout.VERTICAL);card.setPadding(dp(12),dp(10),dp(12),dp(10));
+            GradientDrawable bg=new GradientDrawable();bg.setColor(0x00000000);bg.setStroke(dp(1),0xFF888888);bg.setCornerRadius(dp(8));card.setBackground(bg);
+            TextView title=text((rec.charging?"CHARGED":"USED")+"  "+String.format(java.util.Locale.US,"%.1f mAh",rec.mah),18);
+            TextView details=text(rec.date()+"  •  "+rec.duration(),14);
+            card.addView(title,full());card.addView(details,top(4));
+            LinearLayout.LayoutParams cp=full();cp.topMargin=dp(8);historyList.addView(card,cp);
+        }
     }
     private void startNotificationService(){Intent i=new Intent(this,BatteryNotificationService.class);if(Build.VERSION.SDK_INT>=26)startForegroundService(i);else startService(i);}
     private TextView text(String s,int size){TextView v=new TextView(this);v.setText(s);v.setTextSize(size);return v;}
