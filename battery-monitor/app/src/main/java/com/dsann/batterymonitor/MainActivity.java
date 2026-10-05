@@ -14,6 +14,7 @@ import android.widget.Switch;
 import android.widget.TextView;
 
 public class MainActivity extends Activity {
+    private static final String PREFS = "settings";
     private final Handler handler = new Handler(Looper.getMainLooper());
     private TextView voltage;
     private TextView current;
@@ -47,16 +48,19 @@ public class MainActivity extends Activity {
         notificationSwitch = new Switch(this);
         notificationSwitch.setText("Notification every 5 seconds");
         notificationSwitch.setTextSize(16);
-        notificationSwitch.setChecked(getPreferences(0).getBoolean("notification_enabled", false));
+        notificationSwitch.setChecked(getSharedPreferences(PREFS, MODE_PRIVATE)
+                .getBoolean("notification_enabled", false));
         root.addView(notificationSwitch, fullWithTop(32));
 
-        TextView note = text("No monitoring service runs unless the notification is enabled.", 13);
+        TextView note = text("The background service runs only while this switch is on.", 13);
         root.addView(note, fullWithTop(16));
 
         setContentView(root);
 
         notificationSwitch.setOnCheckedChangeListener((button, enabled) -> {
-            getPreferences(0).edit().putBoolean("notification_enabled", enabled).apply();
+            getSharedPreferences(PREFS, MODE_PRIVATE).edit()
+                    .putBoolean("notification_enabled", enabled).apply();
+
             if (enabled) {
                 if (Build.VERSION.SDK_INT >= 33 &&
                         checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
