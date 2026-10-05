@@ -73,6 +73,29 @@ public class MainActivity extends Activity {
         });
         r.addView(text("Background recording uses the foreground notification service.",13),top(8));
 
+        LinearLayout dozeBox=new LinearLayout(this);
+        dozeBox.setOrientation(LinearLayout.VERTICAL);
+        dozeBox.addView(text("Force Doze (root)",18),full());
+        LinearLayout dozeRow=new LinearLayout(this);
+        dozeRow.setGravity(Gravity.CENTER_VERTICAL);
+        Button enableDoze=new Button(this);enableDoze.setText("Enable");
+        Button disableDoze=new Button(this);disableDoze.setText("Disable");
+        dozeRow.addView(enableDoze,new LinearLayout.LayoutParams(0,-2,1));
+        dozeRow.addView(disableDoze,new LinearLayout.LayoutParams(0,-2,1));
+        dozeBox.addView(dozeRow,top(4));
+        TextView dozeStatus=text("Forces Android into Doze for testing. Disable restores normal idle behavior.",12);
+        dozeBox.addView(dozeStatus,top(2));
+        r.addView(dozeBox,top(20));
+
+        enableDoze.setOnClickListener(v->{
+            DozeController.Result result=DozeController.forceDoze();
+            dozeStatus.setText(result.message);
+        });
+        disableDoze.setOnClickListener(v->{
+            DozeController.Result result=DozeController.disableForceDoze();
+            dozeStatus.setText(result.message);
+        });
+
         LinearLayout percentBox=new LinearLayout(this);
         percentBox.setOrientation(LinearLayout.VERTICAL);
         TextView percentTitle=text("Battery % changer (root)",18);
