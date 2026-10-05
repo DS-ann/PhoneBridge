@@ -45,6 +45,8 @@ public class MainActivity extends Activity {
         m.setOnClickListener(v->{monitorView.setVisibility(View.VISIBLE);historyView.setVisibility(View.GONE);});
         h.setOnClickListener(v->{monitorView.setVisibility(View.GONE);historyView.setVisibility(View.VISIBLE);refreshHistory();});
         setContentView(root);
+        root.setFocusableInTouchMode(true);
+        root.requestFocus();
     }
     private LinearLayout buildMonitor(){
         LinearLayout r=new LinearLayout(this);r.setOrientation(LinearLayout.VERTICAL);r.setGravity(Gravity.CENTER_HORIZONTAL);
