@@ -17,7 +17,7 @@ public class BatteryNotificationService extends Service {
     private final Runnable updater = new Runnable() {
         @Override public void run() {
             updateNotification();
-            handler.postDelayed(this, 5000L);
+            handler.postDelayed(this, 15000L);
         }
     };
 
@@ -26,7 +26,7 @@ public class BatteryNotificationService extends Service {
         createChannel();
         startForeground(NOTIFICATION_ID, buildNotification("Reading battery..."));
         updateNotification();
-        handler.postDelayed(updater, 5000L);
+        handler.postDelayed(updater, 15000L);
     }
 
     @Override public int onStartCommand(Intent intent, int flags, int startId) {
