@@ -12,6 +12,7 @@ import android.os.Looper;
 import android.view.Gravity;
 import android.view.View;
 import android.widget.Button;
+import android.widget.EditText;
 import android.widget.LinearLayout;
 import android.widget.ScrollView;
 import android.widget.SeekBar;
@@ -69,6 +70,44 @@ public class MainActivity extends Activity {
             public void onStartTrackingTouch(SeekBar b){} public void onStopTrackingTouch(SeekBar b){}
         });
         r.addView(text("Background recording uses the foreground notification service.",13),top(8));
+
+        LinearLayout percentBox=new LinearLayout(this);
+        percentBox.setOrientation(LinearLayout.VERTICAL);
+        TextView percentTitle=text("Battery % changer (root)",18);
+        percentBox.addView(percentTitle,full());
+        LinearLayout percentRow=new LinearLayout(this);
+        percentRow.setGravity(Gravity.CENTER_VERTICAL);
+        EditText percentInput=new EditText(this);
+        percentInput.setHint("0–100");
+        percentInput.setSingleLine(true);
+        percentInput.setInputType(android.text.InputType.TYPE_CLASS_NUMBER);
+        percentRow.addView(percentInput,new LinearLayout.LayoutParams(0,-2,1));
+        Button setPercent=new Button(this);
+        setPercent.setText("Set");
+        percentRow.addView(setPercent,new LinearLayout.LayoutParams(-2,-2));
+        Button resetPercent=new Button(this);
+        resetPercent.setText("Reset");
+        percentRow.addView(resetPercent,new LinearLayout.LayoutParams(-2,-2));
+        percentBox.addView(percentRow,top(4));
+        TextView percentStatus=text("Uses Android's battery test override; Reset restores the real battery value.",12);
+        percentBox.addView(percentStatus,top(2));
+        r.addView(percentBox,top(24));
+
+        setPercent.setOnClickListener(v->{
+            String value=percentInput.getText().toString().trim();
+            if(value.isEmpty()){percentStatus.setText("Enter a value from 0 to 100.");return;}
+            try{
+                BatteryPercentOverride.Result result=BatteryPercentOverride.set(Integer.parseInt(value));
+                percentStatus.setText(result.message);
+            }catch(NumberFormatException e){
+                percentStatus.setText("Enter a value from 0 to 100.");
+            }
+        });
+        resetPercent.setOnClickListener(v->{
+            BatteryPercentOverride.Result result=BatteryPercentOverride.reset();
+            percentStatus.setText(result.message);
+        });
+
         notificationSwitch.setOnCheckedChangeListener((b,on)->{
             getSharedPreferences(PREFS,0).edit().putBoolean("notification_enabled",on).apply();samplingBar.setEnabled(on);
             if(on){if(Build.VERSION.SDK_INT>=33&&checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS)!=PackageManager.PERMISSION_GRANTED)requestPermissions(new String[]{Manifest.permission.POST_NOTIFICATIONS},10);startNotificationService();}
