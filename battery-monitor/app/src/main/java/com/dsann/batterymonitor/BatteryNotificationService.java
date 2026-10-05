@@ -13,11 +13,13 @@ import android.os.IBinder;
 public class BatteryNotificationService extends Service {
     private static final int NOTIFICATION_ID = 1001;
     private static final String CHANNEL_ID = "battery_monitor";
+    private static final String PREFS = "settings";
+    private static final String KEY_INTERVAL_MS = "sampling_interval_ms";
     private final Handler handler = new Handler();
     private final Runnable updater = new Runnable() {
         @Override public void run() {
             updateNotification();
-            handler.postDelayed(this, 15000L);
+            handler.postDelayed(this, getSamplingInterval());
         }
     };
 
@@ -26,11 +28,15 @@ public class BatteryNotificationService extends Service {
         createChannel();
         startForeground(NOTIFICATION_ID, buildNotification("Reading battery..."));
         updateNotification();
-        handler.postDelayed(updater, 15000L);
+        handler.postDelayed(updater, getSamplingInterval());
     }
 
     @Override public int onStartCommand(Intent intent, int flags, int startId) {
         return START_STICKY;
+    }
+
+    private long getSamplingInterval() {
+        return getSharedPreferences(PREFS, MODE_PRIVATE).getLong(KEY_INTERVAL_MS, 15000L);
     }
 
     private void updateNotification() {
