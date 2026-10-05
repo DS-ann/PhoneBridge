@@ -13,15 +13,21 @@ import android.view.View;
 import android.widget.Button;
 import android.widget.LinearLayout;
 import android.widget.ScrollView;
+import android.widget.SeekBar;
 import android.widget.Switch;
 import android.widget.TextView;
 import java.util.ArrayList;
 
 public class MainActivity extends Activity {
     private static final String PREFS="settings";
+    private static final String KEY_INTERVAL_MS="sampling_interval_ms";
+    private static final long[] INTERVALS_MS={500L,1000L,5000L,10000L,15000L,30000L};
+    private static final String[] INTERVAL_LABELS={"0.5 s","1 s","5 s","10 s","15 s","30 s"};
     private final Handler handler=new Handler(Looper.getMainLooper());
     private TextView voltage,current;
     private Switch notificationSwitch;
+    private SeekBar samplingBar;
+    private TextView samplingLabel;
     private LinearLayout monitorView,historyView,historyList;
     private final Runnable updater=new Runnable(){public void run(){updateValues();handler.postDelayed(this,1000);}};
     @Override protected void onCreate(Bundle state){
@@ -44,13 +50,62 @@ public class MainActivity extends Activity {
         r.addView(text("Battery Monitor",24),full());
         voltage=text("Voltage: --",30);r.addView(voltage,top(24));
         current=text("Current: --",30);r.addView(current,top(12));
-        notificationSwitch=new Switch(this);notificationSwitch.setText("Record in background");notificationSwitch.setTextSize(16);
-        notificationSwitch.setChecked(getSharedPreferences(PREFS,0).getBoolean("notification_enabled",false));r.addView(notificationSwitch,top(28));
+
+        LinearLayout settingsRow=new LinearLayout(this);
+        settingsRow.setOrientation(LinearLayout.HORIZONTAL);
+        settingsRow.setGravity(Gravity.CENTER_VERTICAL);
+        notificationSwitch=new Switch(this);
+        notificationSwitch.setText("Record in background");
+        notificationSwitch.setTextSize(16);
+        settingsRow.addView(notificationSwitch,new LinearLayout.LayoutParams(0,-2,1));
+
+        LinearLayout rateBox=new LinearLayout(this);
+        rateBox.setOrientation(LinearLayout.VERTICAL);
+        samplingLabel=text("Sampling: 15 s",14);
+        rateBox.addView(samplingLabel,full());
+        samplingBar=new SeekBar(this);
+        samplingBar.setMax(INTERVALS_MS.length-1);
+        rateBox.addView(samplingBar,new LinearLayout.LayoutParams(-1,-2));
+        settingsRow.addView(rateBox,new LinearLayout.LayoutParams(0,-2,1));
+        r.addView(settingsRow,top(28));
+
+        android.content.SharedPreferences prefs=getSharedPreferences(PREFS,0);
+        long saved=prefs.getLong(KEY_INTERVAL_MS,15000L);
+        int index=indexForInterval(saved);
+        samplingBar.setProgress(index);
+        samplingLabel.setText("Sampling: "+INTERVAL_LABELS[index]);
+        notificationSwitch.setChecked(prefs.getBoolean("notification_enabled",false));
+        samplingBar.setEnabled(notificationSwitch.isChecked());
+
+        samplingBar.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener(){
+            public void onProgressChanged(SeekBar b,int progress,boolean fromUser){
+                samplingLabel.setText("Sampling: "+INTERVAL_LABELS[progress]);
+                if(fromUser)getSharedPreferences(PREFS,0).edit().putLong(KEY_INTERVAL_MS,INTERVALS_MS[progress]).apply();
+            }
+            public void onStartTrackingTouch(SeekBar b){}
+            public void onStopTrackingTouch(SeekBar b){}
+        });
+
         r.addView(text("Background recording uses the foreground notification service.",13),top(8));
-        notificationSwitch.setOnCheckedChangeListener((b,on)->{getSharedPreferences(PREFS,0).edit().putBoolean("notification_enabled",on).apply();
-            if(on){if(Build.VERSION.SDK_INT>=33&&checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS)!=PackageManager.PERMISSION_GRANTED)requestPermissions(new String[]{Manifest.permission.POST_NOTIFICATIONS},10);startNotificationService();}
-            else stopService(new Intent(this,BatteryNotificationService.class));});
+        notificationSwitch.setOnCheckedChangeListener((b,on)->{
+            getSharedPreferences(PREFS,0).edit().putBoolean("notification_enabled",on).apply();
+            samplingBar.setEnabled(on);
+            if(on){
+                if(Build.VERSION.SDK_INT>=33&&checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS)!=PackageManager.PERMISSION_GRANTED)
+                    requestPermissions(new String[]{Manifest.permission.POST_NOTIFICATIONS},10);
+                startNotificationService();
+            } else stopService(new Intent(this,BatteryNotificationService.class));
+        });
         return r;
+    }
+    private int indexForInterval(long ms){
+        int best=0;
+        long diff=Math.abs(INTERVALS_MS[0]-ms);
+        for(int i=1;i<INTERVALS_MS.length;i++){
+            long d=Math.abs(INTERVALS_MS[i]-ms);
+            if(d<diff){diff=d;best=i;}
+        }
+        return best;
     }
     private LinearLayout buildHistory(){
         LinearLayout r=new LinearLayout(this);r.setOrientation(LinearLayout.VERTICAL);r.setPadding(dp(16),dp(12),dp(16),dp(12));
