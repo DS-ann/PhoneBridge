@@ -7,6 +7,8 @@
     <application
         android:allowBackup="false"
         android:label="Battery Monitor"
+        android:icon="@drawable/battery_logo"
+        android:roundIcon="@drawable/battery_logo"
         android:theme="@style/AppTheme"
         android:usesCleartextTraffic="false">
         <activity
