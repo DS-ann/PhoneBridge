@@ -35,6 +35,7 @@ public class BatteryNotificationService extends Service {
 
     private void updateNotification() {
         BatteryReader.Reading r = BatteryReader.read(this);
+        SessionStore.sample(this, r);
         NotificationManager nm = (NotificationManager) getSystemService(NOTIFICATION_SERVICE);
         if (nm != null) nm.notify(NOTIFICATION_ID, buildNotification(r.compact()));
     }
@@ -72,6 +73,7 @@ public class BatteryNotificationService extends Service {
 
     @Override public void onDestroy() {
         handler.removeCallbacks(updater);
+        SessionStore.finish(this);
         stopForeground(true);
         super.onDestroy();
     }
