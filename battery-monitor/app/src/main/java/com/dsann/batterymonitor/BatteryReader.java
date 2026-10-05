@@ -23,32 +23,52 @@ final class BatteryReader {
     private BatteryReader() {}
 
     static Reading read(Context context) {
-        Long currentMa = readSysfs(FG_CURRENT);
+        Long currentRaw = readSysfs(FG_CURRENT);
         Long voltageMv = readSysfs(INSTAT_VOLT);
 
-        // On this rooted MTK phone the kernel nodes can be readable from a
-        // root shell but blocked to a normal app by file permissions/SELinux.
+        // On this MTK phone FG_Current is reported in 0.1 mA units.
+        // Example: 2437 means 243.7 mA, not 2437 mA.
+        if (currentRaw != null) {
+            long currentUa = currentRaw * 100L;
+            return new Reading(
+                    voltageMv != null ? voltageMv * 1000L : Long.MIN_VALUE,
+                    currentUa
+            );
+        }
+
         // Keep one persistent su process instead of starting su once per read.
-        if (currentMa == null || voltageMv == null) {
-            RootReading rr = readAsRoot();
-            if (rr != null) {
-                if (currentMa == null) currentMa = rr.currentMa;
-                if (voltageMv == null) voltageMv = rr.voltageMv;
+        RootReading rr = readAsRoot();
+        if (rr != null) {
+            currentRaw = rr.currentRaw;
+            if (voltageMv == null) voltageMv = rr.voltageMv;
+        }
+
+        if (currentRaw != null) {
+            long currentUa = currentRaw * 100L;
+            return new Reading(
+                    voltageMv != null ? voltageMv * 1000L : Long.MIN_VALUE,
+                    currentUa
+            );
+        }
+
+        // Generic Android/sysfs fallback: these current values are in microamps.
+        BatteryManager bm = (BatteryManager) context.getSystemService(Context.BATTERY_SERVICE);
+        if (bm != null && Build.VERSION.SDK_INT >= 21) {
+            long currentUa = bm.getLongProperty(BatteryManager.BATTERY_PROPERTY_CURRENT_NOW);
+            if (currentUa != 0) {
+                return new Reading(
+                        voltageMv != null ? voltageMv * 1000L : Long.MIN_VALUE,
+                        currentUa
+                );
             }
         }
 
-        // Generic Android/sysfs fallbacks for non-MTK devices.
-        if (currentMa == null) {
-            BatteryManager bm = (BatteryManager) context.getSystemService(Context.BATTERY_SERVICE);
-            if (bm != null && Build.VERSION.SDK_INT >= 21) {
-                long currentUa = bm.getLongProperty(BatteryManager.BATTERY_PROPERTY_CURRENT_NOW);
-                if (currentUa != 0) currentMa = Math.round(currentUa / 1000.0);
-            }
-        }
-
-        if (currentMa == null) {
-            Long v = readSysfs("/sys/class/power_supply/battery/current_now");
-            if (v != null) currentMa = Math.round(v / 1000.0);
+        Long fallbackUa = readSysfs("/sys/class/power_supply/battery/current_now");
+        if (fallbackUa != null) {
+            return new Reading(
+                    voltageMv != null ? voltageMv * 1000L : Long.MIN_VALUE,
+                    fallbackUa
+            );
         }
 
         if (voltageMv == null) {
@@ -68,7 +88,7 @@ final class BatteryReader {
 
         return new Reading(
                 voltageMv != null ? voltageMv * 1000L : Long.MIN_VALUE,
-                currentMa != null ? currentMa * 1000L : Long.MIN_VALUE
+                Long.MIN_VALUE
         );
     }
 
@@ -129,7 +149,6 @@ final class BatteryReader {
             String voltage = stdout.readLine();
             if (current == null || voltage == null) throw new IOException("su closed");
 
-            // A root shell should return exactly the two numeric values.
             return new RootReading(
                     Long.parseLong(current.trim()),
                     Long.parseLong(voltage.trim())
@@ -145,11 +164,11 @@ final class BatteryReader {
     }
 
     static final class RootReading {
-        final long currentMa;
+        final long currentRaw;
         final long voltageMv;
 
-        RootReading(long currentMa, long voltageMv) {
-            this.currentMa = currentMa;
+        RootReading(long currentRaw, long voltageMv) {
+            this.currentRaw = currentRaw;
             this.voltageMv = voltageMv;
         }
     }
