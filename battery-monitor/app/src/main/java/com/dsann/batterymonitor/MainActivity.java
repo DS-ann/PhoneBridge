@@ -32,9 +32,9 @@ public class MainActivity extends Activity {
     private Switch notificationSwitch;
     private SeekBar samplingBar;
     private TextView samplingLabel;
-    private LinearLayout monitorView,historyView,historyList;
+    private LinearLayout monitorView,historyView,healthView,historyList;
     private View monitorContainer;
-    private TextView monitorTab,historyTab;
+    private TextView monitorTab,historyTab,healthTab;
     private final Runnable updater=new Runnable(){public void run(){updateValues();handler.postDelayed(this,1000);}};
     
     @Override protected void onCreate(Bundle state){
@@ -61,8 +61,10 @@ public class MainActivity extends Activity {
         tabs.setPadding(dp(16),dp(4),dp(16),dp(10));
         monitorTab=tab("Monitor");
         historyTab=tab("History");
+        healthTab=tab("Health");
         tabs.addView(monitorTab,new LinearLayout.LayoutParams(0,dp(42),1));
         tabs.addView(historyTab,new LinearLayout.LayoutParams(0,dp(42),1));
+        tabs.addView(healthTab,new LinearLayout.LayoutParams(0,dp(42),1));
         root.addView(tabs);
         
         monitorView=buildMonitor();
@@ -70,14 +72,18 @@ public class MainActivity extends Activity {
         ((ScrollView)monitorContainer).setFillViewport(true);
         ((ScrollView)monitorContainer).addView(monitorView);
         historyView=buildHistory();
+        healthView=buildHealth();
         
         root.addView(monitorContainer,new LinearLayout.LayoutParams(-1,0,1));
         root.addView(historyView,new LinearLayout.LayoutParams(-1,0,1));
+        root.addView(healthView,new LinearLayout.LayoutParams(-1,0,1));
         historyView.setVisibility(View.GONE);
-        selectTab(true);
+        healthView.setVisibility(View.GONE);
+        selectTab(0);
         
-        monitorTab.setOnClickListener(v->{monitorContainer.setVisibility(View.VISIBLE);historyView.setVisibility(View.GONE);selectTab(true);});
-        historyTab.setOnClickListener(v->{monitorContainer.setVisibility(View.GONE);historyView.setVisibility(View.VISIBLE);selectTab(false);refreshHistory();handler.removeCallbacks(historyUpdater);handler.postDelayed(historyUpdater,10000);});
+        monitorTab.setOnClickListener(v->{monitorContainer.setVisibility(View.VISIBLE);historyView.setVisibility(View.GONE);healthView.setVisibility(View.GONE);selectTab(0);});
+        historyTab.setOnClickListener(v->{monitorContainer.setVisibility(View.GONE);historyView.setVisibility(View.VISIBLE);healthView.setVisibility(View.GONE);selectTab(1);refreshHistory();handler.removeCallbacks(historyUpdater);handler.postDelayed(historyUpdater,10000);});
+        healthTab.setOnClickListener(v->{monitorContainer.setVisibility(View.GONE);historyView.setVisibility(View.GONE);healthView.setVisibility(View.VISIBLE);selectTab(2);refreshHealth();handler.removeCallbacks(historyUpdater);});
         
         setContentView(root);
         root.setFocusableInTouchMode(true);
@@ -192,6 +198,81 @@ public class MainActivity extends Activity {
         return r;
     }
     
+    private LinearLayout buildHealth(){
+        LinearLayout r=new LinearLayout(this); r.setOrientation(LinearLayout.VERTICAL); r.setPadding(dp(16),dp(4),dp(16),dp(20));
+        TextView title=text("Battery health",22); title.setTypeface(Typeface.DEFAULT,Typeface.BOLD); r.addView(title,full());
+        TextView sub=text("Capacity, wear, estimation quality and source data",13); sub.setTextColor(0xFF9AA0AA); r.addView(sub,top(2));
+
+        LinearLayout summary=card(0xFF201B2B,0xFFB58CFF);
+        TextView big=text("--",30); big.setTypeface(Typeface.DEFAULT,Typeface.BOLD); big.setTextColor(0xFFBFA5FF); big.setTag("health_big"); summary.addView(big,full());
+        TextView sm=text("Waiting for battery data",13); sm.setTextColor(0xFF9AA0AA); sm.setTag("health_summary"); summary.addView(sm,top(2));
+        r.addView(summary,top(12));
+
+        LinearLayout data=card(0xFF172334,0xFF63B3FF); data.setTag("health_data");
+        r.addView(data,top(10));
+        TextView q=sectionTitle("Measured battery data"); data.addView(q,full());
+        addHealthRow(data,"Full charge capacity","--","full");
+        addHealthRow(data,"Design capacity","--","design");
+        addHealthRow(data,"Capacity ratio","--","ratio");
+        addHealthRow(data,"Raw health source","--","source");
+        addHealthRow(data,"Source file","--","sourcepath");
+
+        LinearLayout est=card(0xFF17271F,0xFF63E6A8); est.setTag("health_est");
+        r.addView(est,top(10)); est.addView(sectionTitle("Session-based estimate"),full());
+        addHealthRow(est,"Estimated capacity","--","estcap"); addHealthRow(est,"Estimated health","--","esthealth");
+        addHealthRow(est,"Estimated wear","--","estwear"); addHealthRow(est,"Qualified sessions","--","qualified");
+        addHealthRow(est,"Qualification threshold","40% battery gain","threshold");
+
+        LinearLayout model=card(0xFF211E18,0xFFFFC86B); model.addView(sectionTitle("Live / model data"),full());
+        addHealthRow(model,"Battery level","--","level"); addHealthRow(model,"Voltage","--","volt"); addHealthRow(model,"Current","--","current");
+        addHealthRow(model,"Wear model","Voltage-based estimate","model"); addHealthRow(model,"Last update","--","updated");
+        r.addView(model,top(10));
+
+        TextView note=text("Session health uses only charging sessions with at least 40 percentage points of battery gain. Up to the newest 8 valid sessions are used; a median-heavy estimate reduces the impact of noisy sessions. The voltage wear curve is an approximation, not AccuBattery's private algorithm.",11);
+        note.setTextColor(0xFF858D99); r.addView(note,top(12));
+        return r;
+    }
+
+    private TextView sectionTitle(String s){TextView v=text(s,15);v.setTypeface(Typeface.DEFAULT,Typeface.BOLD);return v;}
+    private void addHealthRow(LinearLayout p,String label,String value,String tag){
+        LinearLayout row=new LinearLayout(this); row.setGravity(Gravity.CENTER_VERTICAL);
+        TextView l=text(label,12); l.setTextColor(0xFF9AA0AA); row.addView(l,new LinearLayout.LayoutParams(0,-2,1));
+        TextView v=text(value,13); v.setTypeface(Typeface.DEFAULT,Typeface.BOLD); v.setGravity(Gravity.RIGHT); v.setTag(tag); row.addView(v,new LinearLayout.LayoutParams(-2,-2));
+        p.addView(row,top(8));
+    }
+    private TextView healthValue(String tag){ return findTagged(healthView,tag); }
+    private TextView findTagged(View root,String tag){
+        if(root instanceof TextView && tag.equals(root.getTag())) return (TextView)root;
+        if(root instanceof android.view.ViewGroup){android.view.ViewGroup g=(android.view.ViewGroup)root;for(int i=0;i<g.getChildCount();i++){TextView v=findTagged(g.getChildAt(i),tag);if(v!=null)return v;}}
+        return null;
+    }
+    private void refreshHealth(){
+        if(healthView==null)return;
+        BatteryWearStore.update(this); BatteryWearStore.updateEstimatedHealth(this);
+        BatteryWearStore.Snapshot w=BatteryWearStore.get(this);
+        TextView big=healthValue("health_big"), summary=healthValue("health_summary");
+        if(w.available()){
+            big.setText(String.format(java.util.Locale.US,"%.1f%% health",w.health));
+            summary.setText(String.format(java.util.Locale.US,"%.1f%% wear  •  %.0f / %.0f mAh",w.wear,w.fullCapacityMah(),w.designCapacityMah()));
+        }
+        else {big.setText("--");summary.setText("Battery capacity source unavailable");}
+        healthValue("full").setText(w.fullUah>0?String.format(java.util.Locale.US,"%.0f mAh",w.fullCapacityMah()):"Unavailable");
+        healthValue("design").setText(w.designUah>0?String.format(java.util.Locale.US,"%.0f mAh",w.designCapacityMah()):"Unavailable");
+        healthValue("ratio").setText(w.fullUah>0&&w.designUah>0?String.format(java.util.Locale.US,"%.1f%%",w.fullCapacityMah()*100/w.designCapacityMah()):"Unavailable");
+        healthValue("source").setText(w.fullUah>0?"charge_full":"Unavailable");
+        healthValue("sourcepath").setText(BatteryWearStore.fullSource());
+        healthValue("estcap").setText(w.estimatedFullUah>0?String.format(java.util.Locale.US,"%.0f mAh",w.estimatedCapacityMah()):"Need a 40%+ session");
+        healthValue("esthealth").setText(w.estimatedHealth>=0?String.format(java.util.Locale.US,"%.1f%%",w.estimatedHealth):"Need more data");
+        healthValue("estwear").setText(w.estimatedWear>=0?String.format(java.util.Locale.US,"%.1f%%",w.estimatedWear):"Need more data");
+        healthValue("qualified").setText(String.valueOf(w.qualifiedSessions));
+        BatteryReader.Reading br=BatteryReader.read(this);
+        healthValue("level").setText(String.valueOf(getBatteryPercent())+"%");
+        healthValue("volt").setText(br.voltageText());
+        healthValue("current").setText(br.currentText());
+        healthValue("updated").setText(w.updated>0?new java.text.SimpleDateFormat("dd MMM, HH:mm:ss",java.util.Locale.US).format(new java.util.Date(w.updated)):"--");
+    }
+    private int getBatteryPercent(){Intent i=registerReceiver(null,new android.content.IntentFilter(Intent.ACTION_BATTERY_CHANGED));if(i==null)return -1;int l=i.getIntExtra(android.os.BatteryManager.EXTRA_LEVEL,-1),s=i.getIntExtra(android.os.BatteryManager.EXTRA_SCALE,100);return l<0?-1:Math.round(l*100f/s);}
+
     private final Runnable historyUpdater=new Runnable(){public void run(){if(historyView!=null&&historyView.getVisibility()==View.VISIBLE){refreshHistory();handler.postDelayed(this,10000);}}};
     
     @Override protected void onResume(){
@@ -200,7 +281,7 @@ public class MainActivity extends Activity {
         handler.removeCallbacks(updater);
         handler.post(updater);
         handler.removeCallbacks(historyUpdater);
-        if(historyView!=null&&historyView.getVisibility()==View.VISIBLE){refreshHistory();handler.postDelayed(historyUpdater,10000);}
+        if(historyView!=null&&historyView.getVisibility()==View.VISIBLE){refreshHistory();handler.postDelayed(historyUpdater,10000);} if(healthView!=null&&healthView.getVisibility()==View.VISIBLE)refreshHealth();
     }
     
     @Override protected void onPause(){
