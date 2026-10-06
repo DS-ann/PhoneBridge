@@ -182,7 +182,7 @@ final class SessionStore {
             try{
                 String[] x=line.split("\\|");
                 if(x.length>=2 && Long.parseLong(x[1])>=cutoffMs){
-                    if(keep.length()>0)keep.append('\\n');
+                    if(keep.length()>0)keep.append('\n');
                     keep.append(line);
                 }
             }catch(Exception ignored){}
