@@ -37,12 +37,12 @@ public class MainActivity extends Activity {
     
     @Override protected void onCreate(Bundle state){
         super.onCreate(state);
-        getWindow().setStatusBarColor(Color.TRANSPARENT);
-        getWindow().setNavigationBarColor(Color.TRANSPARENT);
+        getWindow().setStatusBarColor(0xFF101317);
+        getWindow().setNavigationBarColor(0xFF101317);
         
         LinearLayout root=new LinearLayout(this);
         root.setOrientation(LinearLayout.VERTICAL);
-        root.setBackgroundColor(0xFFF4F6F9);
+        root.setBackgroundColor(0xFF0F1115);
         
         LinearLayout header=new LinearLayout(this);
         header.setOrientation(LinearLayout.VERTICAL);
@@ -51,7 +51,7 @@ public class MainActivity extends Activity {
         appTitle.setTypeface(Typeface.DEFAULT,Typeface.BOLD);
         header.addView(appTitle,full());
         TextView subtitle=text("Power usage, sessions and battery tools",13);
-        subtitle.setTextColor(0xFF707070);
+        subtitle.setTextColor(0xFF9AA0AA);
         header.addView(subtitle,top(2));
         root.addView(header);
         
@@ -90,9 +90,9 @@ public class MainActivity extends Activity {
         LinearLayout metrics=new LinearLayout(this);
         metrics.setOrientation(LinearLayout.HORIZONTAL);
         
-        LinearLayout voltageCard=metricCard("VOLTAGE","-- V",0xFFF2F7FC);
+        LinearLayout voltageCard=metricCard("VOLTAGE","-- V",0xFF151C25);
         voltage=(TextView)voltageCard.getTag();
-        LinearLayout currentCard=metricCard("CURRENT","-- mA",0xFFF2F8F4);
+        LinearLayout currentCard=metricCard("CURRENT","-- mA",0xFF152019);
         current=(TextView)currentCard.getTag();
         metrics.addView(voltageCard,new LinearLayout.LayoutParams(0,-2,1));
         LinearLayout.LayoutParams curLp=new LinearLayout.LayoutParams(0,-2,1);
@@ -110,13 +110,13 @@ public class MainActivity extends Activity {
         recordingTop.addView(notificationSwitch,new LinearLayout.LayoutParams(-2,-2));
         recording.addView(recordingTop,full());
         TextView recordingSub=text("Keeps the session updated while the app is closed.",13);
-        recordingSub.setTextColor(0xFF707070);
+        recordingSub.setTextColor(0xFF9AA0AA);
         recording.addView(recordingSub,top(2));
         
         LinearLayout sampling=new LinearLayout(this);
         sampling.setOrientation(LinearLayout.VERTICAL);
         samplingLabel=text("Sampling interval  •  15 s",13);
-        samplingLabel.setTextColor(0xFF606060);
+        samplingLabel.setTextColor(0xFF9AA0AA);
         sampling.addView(samplingLabel,full());
         samplingBar=new SeekBar(this);
         samplingBar.setMax(INTERVALS_MS.length-1);
@@ -138,56 +138,6 @@ public class MainActivity extends Activity {
             public void onStartTrackingTouch(SeekBar b){}
             public void onStopTrackingTouch(SeekBar b){}
         });
-        
-        LinearLayout dozeBox=toolCard("Force Doze","Put Android into Doze for power testing.");
-        LinearLayout dozeRow=new LinearLayout(this);
-        dozeRow.setGravity(Gravity.CENTER_VERTICAL);
-        Button enableDoze=actionButton("Enable");
-        Button disableDoze=actionButton("Disable");
-        dozeRow.addView(enableDoze,new LinearLayout.LayoutParams(0,-2,1));
-        LinearLayout.LayoutParams dlp=new LinearLayout.LayoutParams(0,-2,1);
-        dlp.leftMargin=dp(8);
-        dozeRow.addView(disableDoze,dlp);
-        dozeBox.addView(dozeRow,top(10));
-        TextView dozeStatus=text("Normal idle behavior",12);
-        dozeStatus.setTextColor(0xFF777777);
-        dozeBox.addView(dozeStatus,top(4));
-        r.addView(dozeBox,top(12));
-        
-        enableDoze.setOnClickListener(v->{DozeController.Result result=DozeController.forceDoze();dozeStatus.setText(result.message);});
-        disableDoze.setOnClickListener(v->{DozeController.Result result=DozeController.disableForceDoze();dozeStatus.setText(result.message);});
-        
-        LinearLayout percentBox=toolCard("Battery percentage override","Temporarily change Android's displayed battery level.");
-        LinearLayout percentRow=new LinearLayout(this);
-        percentRow.setGravity(Gravity.CENTER_VERTICAL);
-        EditText percentInput=new EditText(this);
-        percentInput.setHint("0–100");
-        percentInput.setSingleLine(true);
-        percentInput.setInputType(android.text.InputType.TYPE_CLASS_NUMBER);
-        percentRow.addView(percentInput,new LinearLayout.LayoutParams(0,-2,1));
-        Button setPercent=actionButton("Set");
-        Button resetPercent=actionButton("Reset");
-        LinearLayout.LayoutParams slp=new LinearLayout.LayoutParams(-2,-2);
-        slp.leftMargin=dp(6);
-        percentRow.addView(setPercent,slp);
-        LinearLayout.LayoutParams rlp=new LinearLayout.LayoutParams(-2,-2);
-        rlp.leftMargin=dp(6);
-        percentRow.addView(resetPercent,rlp);
-        percentBox.addView(percentRow,top(10));
-        TextView percentStatus=text("Reset restores the real battery value.",12);
-        percentStatus.setTextColor(0xFF777777);
-        percentBox.addView(percentStatus,top(4));
-        r.addView(percentBox,top(12));
-        
-        setPercent.setOnClickListener(v->{
-            String value=percentInput.getText().toString().trim();
-            if(value.isEmpty()){percentStatus.setText("Enter a value from 0 to 100.");return;}
-            try{
-                BatteryPercentOverride.Result result=BatteryPercentOverride.set(Integer.parseInt(value));
-                percentStatus.setText(result.message);
-            }catch(NumberFormatException e){percentStatus.setText("Enter a value from 0 to 100.");}
-        });
-        resetPercent.setOnClickListener(v->{BatteryPercentOverride.Result result=BatteryPercentOverride.reset();percentStatus.setText(result.message);});
         
         notificationSwitch.setOnCheckedChangeListener((b,on)->{
             getSharedPreferences(PREFS,0).edit().putBoolean("notification_enabled",on).apply();
@@ -253,7 +203,7 @@ public class MainActivity extends Activity {
         ArrayList<SessionStore.Record> rs=SessionStore.getRecords(this);
         if(rs.isEmpty()){
             TextView empty=text("No sessions yet",16);
-            empty.setTextColor(0xFF777777);
+            empty.setTextColor(0xFF8E96A3);
             historyList.addView(empty,top(24));
             return;
         }
@@ -263,12 +213,12 @@ public class MainActivity extends Activity {
             title.setTypeface(Typeface.DEFAULT,Typeface.BOLD);
             card.addView(title,full());
             TextView details=text(rec.date()+"  •  "+rec.duration(),13);
-            details.setTextColor(0xFF707070);
+            details.setTextColor(0xFF9AA0AA);
             card.addView(details,top(3));
             String currentRange=Double.isNaN(rec.minCurrent)?"Current: --":"Current: min "+formatSigned(rec.minCurrent)+" mA  •  max "+formatSigned(rec.maxCurrent)+" mA";
             String percentRange=(rec.startPercent>=0&&rec.endPercent>=0)?"Battery: "+rec.startPercent+"% → "+rec.endPercent+"%  ("+String.format(java.util.Locale.US,"%+d%%",rec.endPercent-rec.startPercent)+")":"Battery: --";
             TextView overall=text("Overall",12);
-            overall.setTextColor(0xFF777777);
+            overall.setTextColor(0xFF8E96A3);
             card.addView(overall,top(12));
             card.addView(text(currentRange,13),top(3));
             card.addView(text(percentRange,13),top(3));
@@ -280,7 +230,7 @@ public class MainActivity extends Activity {
             addScreenDetails(expanded,"Screen OFF",rec.offMs,rec.offMah,rec.offMin,rec.offMax,rec.offStartPercent,rec.offEndPercent);
             card.addView(expanded,top(10));
             TextView hint=text("Tap for screen details",11);
-            hint.setTextColor(0xFF888888);
+            hint.setTextColor(0xFF7E8794);
             card.addView(hint,top(8));
             card.setOnClickListener(v->{
                 boolean show=expanded.getVisibility()!=View.VISIBLE;
@@ -299,7 +249,7 @@ public class MainActivity extends Activity {
         parent.addView(heading,top(4));
         if(ms<=0&&mah<=0){
             TextView none=text("No samples",12);
-            none.setTextColor(0xFF888888);
+            none.setTextColor(0xFF7E8794);
             parent.addView(none,top(2));
             return;
         }
@@ -315,7 +265,7 @@ public class MainActivity extends Activity {
         LinearLayout c=card(color);
         TextView l=text(label,11);
         l.setTypeface(Typeface.DEFAULT,Typeface.BOLD);
-        l.setTextColor(0xFF777777);
+        l.setTextColor(0xFF8E96A3);
         c.addView(l,full());
         TextView v=text(value,25);
         v.setTypeface(Typeface.DEFAULT,Typeface.BOLD);
@@ -342,9 +292,9 @@ public class MainActivity extends Activity {
         c.setOrientation(LinearLayout.VERTICAL);
         c.setPadding(dp(14),dp(13),dp(14),dp(13));
         GradientDrawable bg=new GradientDrawable();
-        bg.setColor(color);
+        bg.setColor(color == Color.WHITE ? 0xFF171A20 : color);
         bg.setCornerRadius(dp(14));
-        bg.setStroke(dp(1),0xFFDDE2E8);
+        bg.setStroke(dp(1),0xFF2A3039);
         c.setBackground(bg);
         if(Build.VERSION.SDK_INT>=21)c.setElevation(dp(1));
         return c;
@@ -366,10 +316,10 @@ public class MainActivity extends Activity {
     }
     
     private void selectTab(boolean monitor){
-        monitorTab.setTextColor(monitor?0xFF111111:0xFF777777);
-        historyTab.setTextColor(monitor?0xFF777777:0xFF111111);
-        monitorTab.setBackground(round(monitor?0xFFE7E7EA:0x00000000,12));
-        historyTab.setBackground(round(monitor?0x00000000:0xFFE7E7EA,12));
+        monitorTab.setTextColor(monitor?0xFFF2F4F7:0xFF8E96A3);
+        historyTab.setTextColor(monitor?0xFF8E96A3:0xFFF2F4F7);
+        monitorTab.setBackground(round(monitor?0xFF242932:0x00000000,12));
+        historyTab.setBackground(round(monitor?0x00000000:0xFF242932,12));
     }
     
     private GradientDrawable round(int color,int radius){
@@ -382,7 +332,7 @@ public class MainActivity extends Activity {
     private String formatSigned(double value){return String.format(java.util.Locale.US,"%+.1f",value);}
     private int indexForInterval(long ms){int best=0;long diff=Math.abs(INTERVALS_MS[0]-ms);for(int i=1;i<INTERVALS_MS.length;i++){long d=Math.abs(INTERVALS_MS[i]-ms);if(d<diff){diff=d;best=i;}}return best;}
     private void startNotificationService(){Intent i=new Intent(this,BatteryNotificationService.class);if(Build.VERSION.SDK_INT>=26)startForegroundService(i);else startService(i);}
-    private TextView text(String s,int size){TextView v=new TextView(this);v.setText(s);v.setTextSize(size);v.setTextColor(0xFF202124);return v;}
+    private TextView text(String s,int size){TextView v=new TextView(this);v.setText(s);v.setTextSize(size);v.setTextColor(0xFFE8EBF0);return v;}
     private LinearLayout.LayoutParams full(){return new LinearLayout.LayoutParams(-1,-2);}
     private LinearLayout.LayoutParams top(int n){LinearLayout.LayoutParams p=full();p.topMargin=dp(n);return p;}
     private int dp(int n){return Math.round(n*getResources().getDisplayMetrics().density);}
