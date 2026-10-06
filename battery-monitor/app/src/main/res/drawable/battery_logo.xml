@@ -4,19 +4,82 @@
     android:height="108dp"
     android:viewportWidth="108"
     android:viewportHeight="108">
+
+    <!-- Deep circular tech backdrop -->
     <path
-        android:fillColor="#263238"
-        android:pathData="M20,30 C20,24 24,20 30,20 L84,20 C90,20 94,24 94,30 L94,78 C94,84 90,88 84,88 L30,88 C24,88 20,84 20,78 Z" />
+        android:fillColor="#080D12"
+        android:pathData="M54,4 A50,50 0,1 0,54 104 A50,50 0,1 0,54 4" />
     <path
-        android:fillColor="#607D8B"
-        android:pathData="M28,28 L84,28 C86,28 88,30 88,32 L88,76 C88,78 86,80 84,80 L28,80 Z" />
+        android:fillColor="#102331"
+        android:pathData="M54,7 A47,47 0,1 0,54 101 A47,47 0,1 0,54 7" />
+
+    <!-- ECG / current waveform -->
     <path
-        android:fillColor="#66BB6A"
-        android:pathData="M30,30 L82,30 C84,30 86,32 86,34 L86,74 C86,76 84,78 82,78 L30,78 Z" />
+        android:fillColor="#00000000"
+        android:strokeColor="#21D4FD"
+        android:strokeWidth="1.5"
+        android:strokeLineCap="round"
+        android:pathData="M10,55 L25,55 L29,55 L33,43 L37,67 L41,55 L49,55" />
     <path
-        android:fillColor="#263238"
-        android:pathData="M94,43 L99,43 C101,43 102,45 102,47 L102,61 C102,63 101,65 99,65 L94,65 Z" />
+        android:fillColor="#00000000"
+        android:strokeColor="#55E6A5"
+        android:strokeWidth="1.5"
+        android:strokeLineCap="round"
+        android:pathData="M59,55 L67,55 L71,67 L75,43 L79,55 L84,55 L98,55" />
+
+    <!-- Metallic battery body -->
     <path
-        android:fillColor="#FFFFFF"
-        android:pathData="M35,43 L44,43 L44,52 L53,52 L53,61 L44,61 L44,70 L35,70 L35,61 L26,61 L26,52 L35,52 Z" />
+        android:fillColor="#111820"
+        android:pathData="M34,22 L74,22 C78,22 81,25 81,29 L81,82 C81,86 78,89 74,89 L34,89 C30,89 27,86 27,82 L27,29 C27,25 30,22 34,22 Z" />
+    <path
+        android:fillColor="#35424C"
+        android:pathData="M34,24 L74,24 C76.8,24 79,26.2 79,29 L79,82 C79,84.8 76.8,87 74,87 L34,87 C31.2,87 29,84.8 29,82 L29,29 C29,26.2 31.2,24 34,24 Z" />
+
+    <!-- Top terminal plate -->
+    <path
+        android:fillColor="#1C252D"
+        android:pathData="M30,24 L78,24 L78,34 L30,34 Z" />
+    <path
+        android:fillColor="#9DA9B2"
+        android:pathData="M39,19 L48,19 L48,25 L39,25 Z" />
+    <path
+        android:fillColor="#DCE5EA"
+        android:pathData="M60,19 L69,19 L69,25 L60,25 Z" />
+
+    <!-- Glass window -->
+    <path
+        android:fillColor="#071116"
+        android:pathData="M34,35 L72,35 C74.8,35 77,37.2 77,40 L77,77 C77,79.8 74.8,82 72,82 L34,82 C31.2,82 29,79.8 29,77 L29,40 C29,37.2 31.2,35 34,35 Z" />
+    <path
+        android:fillColor="#183B2A"
+        android:pathData="M34,52 L72,52 C74.2,52 76,53.8 76,56 L76,76 C76,78.2 74.2,80 72,80 L34,80 C31.8,80 30,78.2 30,76 L30,56 C30,53.8 31.8,52 34,52 Z" />
+    <path
+        android:fillColor="#18E66D"
+        android:pathData="M34,54 L72,54 C74.2,54 76,55.8 76,58 L76,75 C76,77.2 74.2,79 72,79 L34,79 C31.8,79 30,77.2 30,75 L30,58 C30,55.8 31.8,54 34,54 Z" />
+    <path
+        android:fillColor="#76FFB2"
+        android:pathData="M34,54 L39,54 L39,79 L34,79 C31.8,79 30,77.2 30,75 L30,58 C30,55.8 31.8,54 34,54 Z" />
+
+    <!-- Gloss highlight -->
+    <path
+        android:fillColor="#66FFFFFF"
+        android:pathData="M34,38 L39,38 L39,76 L34,76 C32.3,76 31,74.7 31,73 L31,41 C31,39.3 32.3,38 34,38 Z" />
+
+    <!-- Battery level line -->
+    <path
+        android:fillColor="#B8FFD2"
+        android:pathData="M34,52 L72,52 L72,54 L34,54 Z" />
+
+    <!-- Small plus/minus marks -->
+    <path
+        android:fillColor="#E7EDF2"
+        android:pathData="M41,27 L45,27 L45,31 L41,31 Z" />
+    <path
+        android:fillColor="#E7EDF2"
+        android:pathData="M63,28 L68,28 L68,30 L63,30 Z" />
+
+    <!-- Bottom metallic rim -->
+    <path
+        android:fillColor="#172129"
+        android:pathData="M30,82 L78,82 L74,87 L34,87 Z" />
 </vector>
