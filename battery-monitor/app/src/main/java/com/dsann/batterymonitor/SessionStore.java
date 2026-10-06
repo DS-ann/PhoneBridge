@@ -112,7 +112,7 @@ final class SessionStore {
                 p.getInt(KEY_ON_START_PERCENT,-1),p.getInt(KEY_ON_END_PERCENT,-1),
                 p.getLong(KEY_OFF_MS,0),readDouble(p,KEY_OFF_MAH,0),readDouble(p,KEY_OFF_MIN,Double.NaN),readDouble(p,KEY_OFF_MAX,Double.NaN),
                 p.getInt(KEY_OFF_START_PERCENT,-1),p.getInt(KEY_OFF_END_PERCENT,-1));
-        p.edit().clear().apply();
+        p.edit().remove(KEY_START).remove(KEY_LAST).remove(KEY_MAH).remove(KEY_MIN_CURRENT).remove(KEY_MAX_CURRENT)\n                .remove(KEY_START_PERCENT).remove(KEY_LAST_PERCENT).remove(KEY_CHARGING).remove(KEY_SCREEN_ON)\n                .remove(KEY_ON_MS).remove(KEY_ON_MAH).remove(KEY_ON_MIN).remove(KEY_ON_MAX).remove(KEY_ON_START_PERCENT).remove(KEY_ON_END_PERCENT)\n                .remove(KEY_OFF_MS).remove(KEY_OFF_MAH).remove(KEY_OFF_MIN).remove(KEY_OFF_MAX).remove(KEY_OFF_START_PERCENT).remove(KEY_OFF_END_PERCENT).apply();
     }
 
     static synchronized ArrayList<Record> getRecords(Context c){
@@ -122,7 +122,7 @@ final class SessionStore {
         String[] lines=raw.split("\\n");
         for(int i=lines.length-1;i>=0;i--){
             String[] x=lines[i].split("\\|");
-            if(x.length!=4&&x.length!=8&&x.length!=21)continue;
+            if(x.length!=4&&x.length!=8&&x.length!=20)continue;
             try{
                 if(x.length==4) out.add(new Record(Long.parseLong(x[0]),Long.parseLong(x[1]),"1".equals(x[2]),Double.parseDouble(x[3]),
                         Double.NaN,Double.NaN,-1,-1,0,0,Double.NaN,Double.NaN,-1,-1,0,0,Double.NaN,Double.NaN,-1,-1));
