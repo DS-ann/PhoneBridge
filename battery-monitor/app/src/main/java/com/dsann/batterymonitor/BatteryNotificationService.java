@@ -41,6 +41,10 @@ public class BatteryNotificationService extends Service {
     }
 
     private void updateNotification() {
+        if (!getSharedPreferences(PREFS, MODE_PRIVATE).getBoolean("notification_enabled", false)) {
+            stopSelf();
+            return;
+        }
         BatteryReader.Reading r = BatteryReader.read(this);
         SessionStore.sample(this, r);
         double mah = SessionStore.getActiveMah(this);
