@@ -33,6 +33,7 @@ public class MainActivity extends Activity {
     private SeekBar samplingBar;
     private TextView samplingLabel;
     private LinearLayout monitorView,historyView,healthView,historyList;
+    private View healthContainer;
     private View monitorContainer;
     private TextView monitorTab,historyTab,healthTab;
     private final Runnable updater=new Runnable(){public void run(){updateValues();handler.postDelayed(this,1000);}};
@@ -73,17 +74,20 @@ public class MainActivity extends Activity {
         ((ScrollView)monitorContainer).addView(monitorView);
         historyView=buildHistory();
         healthView=buildHealth();
+        healthContainer=new ScrollView(this);
+        ((ScrollView)healthContainer).setFillViewport(true);
+        ((ScrollView)healthContainer).addView(healthView);
         
         root.addView(monitorContainer,new LinearLayout.LayoutParams(-1,0,1));
         root.addView(historyView,new LinearLayout.LayoutParams(-1,0,1));
-        root.addView(healthView,new LinearLayout.LayoutParams(-1,0,1));
+        root.addView(healthContainer,new LinearLayout.LayoutParams(-1,0,1));
         historyView.setVisibility(View.GONE);
-        healthView.setVisibility(View.GONE);
+        healthContainer.setVisibility(View.GONE);
         selectTab(0);
         
-        monitorTab.setOnClickListener(v->{monitorContainer.setVisibility(View.VISIBLE);historyView.setVisibility(View.GONE);healthView.setVisibility(View.GONE);selectTab(0);});
-        historyTab.setOnClickListener(v->{monitorContainer.setVisibility(View.GONE);historyView.setVisibility(View.VISIBLE);healthView.setVisibility(View.GONE);selectTab(1);refreshHistory();handler.removeCallbacks(historyUpdater);handler.postDelayed(historyUpdater,10000);});
-        healthTab.setOnClickListener(v->{monitorContainer.setVisibility(View.GONE);historyView.setVisibility(View.GONE);healthView.setVisibility(View.VISIBLE);selectTab(2);refreshHealth();handler.removeCallbacks(historyUpdater);});
+        monitorTab.setOnClickListener(v->{monitorContainer.setVisibility(View.VISIBLE);historyView.setVisibility(View.GONE);healthContainer.setVisibility(View.GONE);selectTab(0);});
+        historyTab.setOnClickListener(v->{monitorContainer.setVisibility(View.GONE);historyView.setVisibility(View.VISIBLE);healthContainer.setVisibility(View.GONE);selectTab(1);refreshHistory();handler.removeCallbacks(historyUpdater);handler.postDelayed(historyUpdater,10000);});
+        healthTab.setOnClickListener(v->{monitorContainer.setVisibility(View.GONE);historyView.setVisibility(View.GONE);healthContainer.setVisibility(View.VISIBLE);selectTab(2);refreshHealth();handler.removeCallbacks(historyUpdater);});
         
         setContentView(root);
         root.setFocusableInTouchMode(true);
@@ -93,7 +97,7 @@ public class MainActivity extends Activity {
     private LinearLayout buildMonitor(){
         LinearLayout r=new LinearLayout(this);
         r.setOrientation(LinearLayout.VERTICAL);
-        r.setPadding(dp(16),dp(4),dp(16),dp(20));
+        r.setPadding(dp(16),dp(6),dp(16),dp(24));
         
         LinearLayout metrics=new LinearLayout(this);
         metrics.setOrientation(LinearLayout.HORIZONTAL);
@@ -200,8 +204,8 @@ public class MainActivity extends Activity {
     
     private LinearLayout buildHealth(){
         LinearLayout r=new LinearLayout(this); r.setOrientation(LinearLayout.VERTICAL); r.setPadding(dp(16),dp(4),dp(16),dp(20));
-        TextView title=text("Battery health",22); title.setTypeface(Typeface.DEFAULT,Typeface.BOLD); r.addView(title,full());
-        TextView sub=text("Capacity, wear, estimation quality and source data",13); sub.setTextColor(0xFF9AA0AA); r.addView(sub,top(2));
+        TextView title=text("Battery health",22); title.setTypeface(Typeface.DEFAULT,Typeface.BOLD); title.setMaxLines(1); r.addView(title,full());
+        TextView sub=text("Capacity, wear, estimation quality and source data",13); sub.setTextColor(0xFF9AA0AA); sub.setMaxLines(2); r.addView(sub,top(2));
 
         LinearLayout summary=card(0xFF201B2B,0xFFB58CFF);
         TextView big=text("--",30); big.setTypeface(Typeface.DEFAULT,Typeface.BOLD); big.setTextColor(0xFFBFA5FF); big.setTag("health_big"); summary.addView(big,full());
@@ -266,7 +270,8 @@ public class MainActivity extends Activity {
         healthValue("estwear").setText(w.estimatedWear>=0?String.format(java.util.Locale.US,"%.1f%%",w.estimatedWear):"Need more data");
         healthValue("qualified").setText(String.valueOf(w.qualifiedSessions));
         BatteryReader.Reading br=BatteryReader.read(this);
-        healthValue("level").setText(String.valueOf(getBatteryPercent())+"%");
+        int level=getBatteryPercent();
+        healthValue("level").setText(level>=0?String.valueOf(level)+"%":"Unavailable");
         healthValue("volt").setText(br.voltageText());
         healthValue("current").setText(br.currentText());
         healthValue("updated").setText(w.updated>0?new java.text.SimpleDateFormat("dd MMM, HH:mm:ss",java.util.Locale.US).format(new java.util.Date(w.updated)):"--");
@@ -281,7 +286,7 @@ public class MainActivity extends Activity {
         handler.removeCallbacks(updater);
         handler.post(updater);
         handler.removeCallbacks(historyUpdater);
-        if(historyView!=null&&historyView.getVisibility()==View.VISIBLE){refreshHistory();handler.postDelayed(historyUpdater,10000);} if(healthView!=null&&healthView.getVisibility()==View.VISIBLE)refreshHealth();
+        if(historyView!=null&&historyView.getVisibility()==View.VISIBLE){refreshHistory();handler.postDelayed(historyUpdater,10000);} if(healthContainer!=null&&healthContainer.getVisibility()==View.VISIBLE)refreshHealth();
     }
     
     @Override protected void onPause(){
@@ -471,11 +476,17 @@ public class MainActivity extends Activity {
         return v;
     }
     
-    private void selectTab(boolean monitor){
-        monitorTab.setTextColor(monitor?0xFF7CC7FF:0xFF8E96A3);
-        historyTab.setTextColor(monitor?0xFF8E96A3:0xFFB58CFF);
-        monitorTab.setBackground(round(monitor?0xFF172334:0x00000000,12));
-        historyTab.setBackground(round(monitor?0x00000000:0xFF211B2D,12));
+    private void selectTab(int selected){
+        TextView[] tabs={monitorTab,historyTab,healthTab};
+        int[] activeText={0xFF7CC7FF,0xFFB58CFF,0xFF63E6A8};
+        int[] activeBg={0xFF172334,0xFF211B2D,0xFF17271F};
+        for(int i=0;i<tabs.length;i++){
+            boolean active=i==selected;
+            tabs[i].setTextColor(active?activeText[i]:0xFF8E96A3);
+            tabs[i].setBackground(round(active?activeBg[i]:0x00000000,12));
+            tabs[i].setMinHeight(dp(48));
+            tabs[i].setContentDescription(tabs[i].getText()+" tab"+(active?", selected":""));
+        }
     }
     
     private GradientDrawable round(int color,int radius){
