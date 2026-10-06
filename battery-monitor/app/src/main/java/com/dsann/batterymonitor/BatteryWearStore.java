@@ -7,6 +7,7 @@ import android.os.BatteryManager;
 import java.io.BufferedReader;
 import java.io.File;
 import java.io.FileReader;
+import java.util.ArrayList;
 
 final class BatteryWearStore {
     private static final String PREFS = "battery_wear";
@@ -45,6 +46,39 @@ final class BatteryWearStore {
                 .putFloat(KEY_HEALTH, (float) health)
                 .putLong(KEY_FULL, full)
                 .putLong(KEY_DESIGN, design)
+                .putLong(KEY_UPDATED, System.currentTimeMillis())
+                .apply();
+    }
+
+    static synchronized void updateEstimatedHealth(Context c) {
+        long designUah = firstPositive(DESIGN_PATHS);
+        if (designUah <= 0) return;
+        designUah = normalizeCapacity(designUah);
+
+        ArrayList<SessionStore.Record> records = SessionStore.getRecords(c);
+        double sum = 0;
+        int count = 0;
+        for (SessionStore.Record rec : records) {
+            if (!rec.charging) continue;
+            int delta = rec.endPercent - rec.startPercent;
+            if (delta < 60 || rec.mah < 0.1) continue;
+            double estimated = rec.mah * 100.0 / delta;
+            if (estimated > 0 && estimated < designUah / 1000.0 * 1.5) {
+                sum += estimated;
+                if (++count >= 5) break;
+            }
+        }
+        if (count == 0) return;
+
+        double estimatedCapacity = sum / count;
+        double health = Math.min(110.0, (estimatedCapacity * 100.0) / (designUah / 1000.0));
+        double wear = Math.max(0.0, 100.0 - health);
+
+        c.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()
+                .putFloat(KEY_WEAR, (float) wear)
+                .putFloat(KEY_HEALTH, (float) health)
+                .putLong(KEY_FULL, Math.round(estimatedCapacity * 1000.0))
+                .putLong(KEY_DESIGN, designUah)
                 .putLong(KEY_UPDATED, System.currentTimeMillis())
                 .apply();
     }
