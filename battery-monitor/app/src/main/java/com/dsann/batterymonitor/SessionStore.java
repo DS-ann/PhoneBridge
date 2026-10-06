@@ -124,8 +124,25 @@ final class SessionStore {
     }
 
     static synchronized ArrayList<Record> getRecords(Context c){
-        String raw=c.getSharedPreferences(PREFS,Context.MODE_PRIVATE).getString(KEY_HISTORY,"");
+        android.content.SharedPreferences p=c.getSharedPreferences(PREFS,Context.MODE_PRIVATE);
+        String raw=p.getString(KEY_HISTORY,"");
         ArrayList<Record> out=new ArrayList<>();
+
+        // Show the currently active session first, so History is live while a session is running.
+        long start=p.getLong(KEY_START,0), last=p.getLong(KEY_LAST,0);
+        if(start!=0&&last!=0){
+            boolean charging=p.getBoolean(KEY_CHARGING,false);
+            double mah=readDouble(p,KEY_MAH,0);
+            double minCurrent=readDouble(p,KEY_MIN_CURRENT,Double.NaN);
+            double maxCurrent=readDouble(p,KEY_MAX_CURRENT,Double.NaN);
+            int startPercent=p.getInt(KEY_START_PERCENT,-1), endPercent=p.getInt(KEY_LAST_PERCENT,-1);
+            out.add(new Record(start,System.currentTimeMillis(),charging,mah,minCurrent,maxCurrent,startPercent,endPercent,
+                    p.getLong(KEY_ON_MS,0),readDouble(p,KEY_ON_MAH,0),readDouble(p,KEY_ON_MIN,Double.NaN),readDouble(p,KEY_ON_MAX,Double.NaN),
+                    p.getInt(KEY_ON_START_PERCENT,-1),p.getInt(KEY_ON_END_PERCENT,-1),
+                    p.getLong(KEY_OFF_MS,0),readDouble(p,KEY_OFF_MAH,0),readDouble(p,KEY_OFF_MIN,Double.NaN),readDouble(p,KEY_OFF_MAX,Double.NaN),
+                    p.getInt(KEY_OFF_START_PERCENT,-1),p.getInt(KEY_OFF_END_PERCENT,-1)));
+        }
+
         if(raw==null||raw.isEmpty())return out;
         String[] lines=raw.split("\\n");
         for(int i=lines.length-1;i>=0;i--){
