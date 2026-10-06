@@ -461,6 +461,13 @@ public class MainActivity extends Activity {
     
     private LinearLayout card(){return card(Color.WHITE);}
 
+    private LinearLayout card(int color,int strokeColor){
+        LinearLayout c=card(color);
+        GradientDrawable bg=(GradientDrawable)c.getBackground();
+        bg.setStroke(dp(1),strokeColor);
+        return c;
+    }
+
     private LinearLayout card(int color){
         LinearLayout c=new LinearLayout(this);
         c.setOrientation(LinearLayout.VERTICAL);
