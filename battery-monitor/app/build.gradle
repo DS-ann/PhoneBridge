@@ -16,10 +16,13 @@ android {
 
     signingConfigs {
         release {
-            storeFile file(System.getenv("BATTERYPULSE_KEYSTORE_PATH"))
-            storePassword System.getenv("BATTERYPULSE_STORE_PASSWORD")
-            keyAlias System.getenv("BATTERYPULSE_KEY_ALIAS")
-            keyPassword System.getenv("BATTERYPULSE_KEY_PASSWORD")
+            def keystorePath = System.getenv("BATTERYPULSE_KEYSTORE_PATH")
+            if (keystorePath != null && !keystorePath.isEmpty()) {
+                storeFile file(keystorePath)
+                storePassword System.getenv("BATTERYPULSE_STORE_PASSWORD")
+                keyAlias System.getenv("BATTERYPULSE_KEY_ALIAS")
+                keyPassword System.getenv("BATTERYPULSE_KEY_PASSWORD")
+            }
         }
     }
 
