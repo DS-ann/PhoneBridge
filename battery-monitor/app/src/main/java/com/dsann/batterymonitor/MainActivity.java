@@ -26,7 +26,7 @@ public class MainActivity extends Activity {
     private static final long[] INTERVALS_MS={500L,1000L,5000L,10000L,15000L,30000L};
     private static final String[] INTERVAL_LABELS={"0.5 s","1 s","5 s","10 s","15 s","30 s"};
     private final Handler handler=new Handler(Looper.getMainLooper());
-    private TextView voltage,current;
+    private TextView voltage,current,wearValue,wearSub;
     private Switch notificationSwitch;
     private SeekBar samplingBar;
     private TextView samplingLabel;
@@ -99,6 +99,22 @@ public class MainActivity extends Activity {
         curLp.leftMargin=dp(8);
         metrics.addView(currentCard,curLp);
         r.addView(metrics);
+        
+        LinearLayout wearCard=card(0xFF171E1A);
+        LinearLayout wearTop=new LinearLayout(this);
+        wearTop.setGravity(Gravity.CENTER_VERTICAL);
+        TextView wearTitle=text("Battery wear",17);
+        wearTitle.setTypeface(Typeface.DEFAULT,Typeface.BOLD);
+        wearTop.addView(wearTitle,new LinearLayout.LayoutParams(0,-2,1));
+        wearValue=text("--",20);
+        wearValue.setTypeface(Typeface.DEFAULT,Typeface.BOLD);
+        wearValue.setTextColor(0xFF9BE7B0);
+        wearTop.addView(wearValue,new LinearLayout.LayoutParams(-2,-2));
+        wearCard.addView(wearTop,full());
+        wearSub=text("Updates while charging • estimated from full/design capacity",12);
+        wearSub.setTextColor(0xFF9AA0AA);
+        wearCard.addView(wearSub,top(3));
+        r.addView(wearCard,top(10));
         
         LinearLayout recording=card();
         LinearLayout recordingTop=new LinearLayout(this);
@@ -192,6 +208,19 @@ public class MainActivity extends Activity {
             BatteryReader.Reading r=BatteryReader.read(this);
             voltage.setText(r.voltageText());
             current.setText(r.currentText());
+            BatteryWearStore.update(this);
+            BatteryWearStore.Snapshot w=BatteryWearStore.get(this);
+            if(w.available()){
+                wearValue.setText(String.format(java.util.Locale.US,"%.1f%% wear",w.wear));
+                String state=BatteryWearStore.isCharging(this)?"Charging • ":"Last estimate • ";
+                wearSub.setText(state+String.format(java.util.Locale.US,"%.1f%% health",w.health)
+                        +" • "+w.capacityText());
+            }else{
+                wearValue.setText("--");
+                wearSub.setText(BatteryWearStore.isCharging(this)
+                        ?"Charging • waiting for battery capacity data"
+                        :"Charge the tablet to calculate battery wear");
+            }
         } catch (Throwable ignored) {
             voltage.setText("N/A");
             current.setText("N/A");
