@@ -9,6 +9,8 @@ import android.os.Build;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
+import android.Manifest;
+import android.content.pm.PackageManager;
 import android.view.Gravity;
 import android.view.View;
 import android.widget.Button;
@@ -159,7 +161,11 @@ public class MainActivity extends Activity {
             getSharedPreferences(PREFS,0).edit().putBoolean("notification_enabled",on).apply();
             samplingBar.setEnabled(on);
             if(on){
-                startNotificationService();
+                if (Build.VERSION.SDK_INT >= 33 && checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
+                    requestPermissions(new String[]{Manifest.permission.POST_NOTIFICATIONS}, 1001);
+                } else {
+                    startNotificationService();
+                }
             }else stopService(new Intent(this,BatteryNotificationService.class));
         });
         return r;
@@ -400,6 +406,19 @@ public class MainActivity extends Activity {
     
     private String formatSigned(double value){return String.format(java.util.Locale.US,"%+.1f",value);}
     private int indexForInterval(long ms){int best=0;long diff=Math.abs(INTERVALS_MS[0]-ms);for(int i=1;i<INTERVALS_MS.length;i++){long d=Math.abs(INTERVALS_MS[i]-ms);if(d<diff){diff=d;best=i;}}return best;}
+    @Override public void onRequestPermissionsResult(int requestCode,String[] permissions,int[] grantResults){
+        super.onRequestPermissionsResult(requestCode,permissions,grantResults);
+        if(requestCode==1001){
+            if(Build.VERSION.SDK_INT<33 || (grantResults.length>0 && grantResults[0]==PackageManager.PERMISSION_GRANTED)){
+                startNotificationService();
+            }else{
+                notificationSwitch.setChecked(false);
+                getSharedPreferences(PREFS,0).edit().putBoolean("notification_enabled",false).apply();
+                samplingBar.setEnabled(false);
+            }
+        }
+    }
+
     private void startNotificationService(){Intent i=new Intent(this,BatteryNotificationService.class);if(Build.VERSION.SDK_INT>=26)startForegroundService(i);else startService(i);}
     private TextView text(String s,int size){TextView v=new TextView(this);v.setText(s);v.setTextSize(size);v.setTextColor(0xFFE8EBF0);return v;}
     private LinearLayout.LayoutParams full(){return new LinearLayout.LayoutParams(-1,-2);}
