@@ -222,11 +222,13 @@ public class MainActivity extends Activity {
         r.addView(data,top(10));
         TextView q=sectionTitle("Measured battery data"); data.addView(q,full());
         addHealthRow(data,"Full charge capacity","--","full");
-        addHealthRow(data,"Measured charge counter","--","counter");
+        addHealthRow(data,"Remaining charge counter","--","counter");
         addHealthRow(data,"Design capacity","--","design");
         addHealthRow(data,"Capacity ratio","--","ratio");
         addHealthRow(data,"Raw health source","--","source");
         addHealthRow(data,"Source file","--","sourcepath");
+        addHealthRow(data,"Full energy","--","fullenergy");
+        addHealthRow(data,"Design energy","--","designenergy");
 
         LinearLayout est=card(0xFF17271F,0xFF63E6A8); est.setTag("health_est");
         r.addView(est,top(10)); est.addView(sectionTitle("Session-based estimate"),full());
@@ -266,6 +268,9 @@ public class MainActivity extends Activity {
         if(w.measuredCapacityAvailable()){
             big.setText(String.format(java.util.Locale.US,"%.1f%% health",w.health));
             summary.setText(String.format(java.util.Locale.US,"Measured • %.1f%% wear  •  %.0f / %.0f mAh",w.wear,w.fullCapacityMah(),w.designCapacityMah()));
+        }else if(w.measuredEnergyAvailable()){
+            big.setText(String.format(java.util.Locale.US,"%.1f%% health",w.health));
+            summary.setText(String.format(java.util.Locale.US,"Measured energy • %.1f%% wear  •  %.0f / %.0f mWh",w.wear,w.fullEnergyUwh/1000.0,w.designEnergyUwh/1000.0));
         }else if(w.estimatedHealth>=0){
             big.setText(String.format(java.util.Locale.US,"%.1f%% estimated",w.estimatedHealth));
             summary.setText(String.format(java.util.Locale.US,"Estimated from %d qualified charging session%s • %.0f mAh",w.qualifiedSessions,w.qualifiedSessions==1?"":"s",w.estimatedCapacityMah()));
@@ -279,11 +284,13 @@ public class MainActivity extends Activity {
 
         healthValue("full").setText(w.fullUah>0?String.format(java.util.Locale.US,"%.0f mAh",w.fullCapacityMah()):"Unavailable");
         long counterUah=BatteryWearStore.getChargeCounterUah(this);
-        healthValue("counter").setText(counterUah>0?String.format(java.util.Locale.US,"%.0f mAh",counterUah/1000.0):"Unavailable");
+        healthValue("counter").setText(counterUah>0?String.format(java.util.Locale.US,"%.0f mAh remaining",counterUah/1000.0):"Unavailable");
         healthValue("design").setText(w.designUah>0?String.format(java.util.Locale.US,"%.0f mAh",w.designCapacityMah()):"Unavailable");
-        healthValue("ratio").setText(w.measuredCapacityAvailable()?String.format(java.util.Locale.US,"%.1f%%",w.fullCapacityMah()*100/w.designCapacityMah()):"Unavailable");
-        healthValue("source").setText(w.measuredCapacityAvailable()?"Measured • charge_full":w.fullUah>0?"Measured • charge counter at 100%":counterUah>0?"Charge counter available":"Unavailable");
-        healthValue("sourcepath").setText(w.fullSource);
+        healthValue("ratio").setText(w.measuredCapacityAvailable()?String.format(java.util.Locale.US,"%.1f%%",w.fullCapacityMah()*100/w.designCapacityMah()):w.measuredEnergyAvailable()?String.format(java.util.Locale.US,"%.1f%%",w.fullEnergyUwh*100.0/w.designEnergyUwh):"Unavailable");
+        healthValue("source").setText(w.measuredCapacityAvailable()?"Measured • charge_full":w.measuredEnergyAvailable()?"Measured • energy_full / energy_full_design":counterUah>0?"Remaining charge counter available":"Unavailable");
+        healthValue("sourcepath").setText(w.measuredCapacityAvailable()?w.fullSource:w.measuredEnergyAvailable()?w.fullEnergySource:"Unavailable");
+        healthValue("fullenergy").setText(w.fullEnergyUwh>0?String.format(java.util.Locale.US,"%.0f mWh",w.fullEnergyUwh/1000.0):"Unavailable");
+        healthValue("designenergy").setText(w.designEnergyUwh>0?String.format(java.util.Locale.US,"%.0f mWh",w.designEnergyUwh/1000.0):"Unavailable");
         healthValue("estcap").setText(w.estimatedCapacityAvailable()?String.format(java.util.Locale.US,"~%.0f mAh",w.estimatedCapacityMah()):"Need a 40%+ session");
         healthValue("esthealth").setText(w.estimatedHealth>=0?String.format(java.util.Locale.US,"%.1f%%",w.estimatedHealth):w.estimatedCapacityAvailable()?"No design capacity source":"Need more data");
         healthValue("estwear").setText(w.estimatedWear>=0?String.format(java.util.Locale.US,"%.1f%%",w.estimatedWear):w.estimatedCapacityAvailable()?"No design capacity source":"Need more data");
