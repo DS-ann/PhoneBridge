@@ -50,10 +50,10 @@ public class MainActivity extends Activity {
         LinearLayout header=new LinearLayout(this);
         header.setOrientation(LinearLayout.VERTICAL);
         header.setPadding(dp(20),dp(18),dp(20),dp(8));
-        TextView appTitle=text("Battery Monitor",25);
+        TextView appTitle=text("BatteryPulse",27);
         appTitle.setTypeface(Typeface.DEFAULT,Typeface.BOLD);
         header.addView(appTitle,full());
-        TextView subtitle=text("Power usage, sessions and battery tools",13);
+        TextView subtitle=text("Battery intelligence • power • health",13);
         subtitle.setTextColor(0xFF9AA0AA);
         header.addView(subtitle,top(2));
         root.addView(header);
@@ -151,6 +151,12 @@ public class MainActivity extends Activity {
         sampling.addView(samplingBar,new LinearLayout.LayoutParams(-1,-2));
         recording.addView(sampling,top(10));
         r.addView(recording,top(12));
+
+        TextView credit=text("{made by Debarghya Sannigrahi}",11);
+        credit.setTextColor(0xFF68717E);
+        credit.setGravity(Gravity.CENTER);
+        credit.setLetterSpacing(0.03f);
+        r.addView(credit,top(18));
         
         android.content.SharedPreferences prefs=getSharedPreferences(PREFS,0);
         int index=indexForInterval(prefs.getLong(KEY_INTERVAL_MS,15000L));
@@ -185,13 +191,13 @@ public class MainActivity extends Activity {
         LinearLayout r=new LinearLayout(this);
         r.setOrientation(LinearLayout.VERTICAL);
         r.setPadding(dp(16),dp(4),dp(16),dp(16));
-        TextView title=text("Session history",22);
+        TextView title=text("History",25);
         title.setTypeface(Typeface.DEFAULT,Typeface.BOLD);
         r.addView(title,full());
-        TextView sub=text("Measured energy use across recording sessions.",13);
+        TextView sub=text("A clear timeline of every recorded charging and usage session.",13);
         sub.setTextColor(0xFF707070);
         r.addView(sub,top(2));
-        Button clear=actionButton("Clear history before 1 month");
+        Button clear=actionButton("Clear older");
         r.addView(clear,top(10));
         clear.setOnClickListener(v->{SessionStore.clear(this);refreshHistory();});
         ScrollView s=new ScrollView(this);
@@ -324,14 +330,17 @@ public class MainActivity extends Activity {
         historyList.removeAllViews();
         ArrayList<SessionStore.Record> rs=SessionStore.getRecords(this);
         if(rs.isEmpty()){
-            TextView empty=text("No sessions yet",16);
+            TextView empty=text("No sessions recorded yet",16);
             empty.setTextColor(0xFF8E96A3);
             historyList.addView(empty,top(24));
             return;
         }
         for(SessionStore.Record rec:rs){
-            LinearLayout card=card();
+            int accent=rec.charging?0xFF63E6A8:0xFFB58CFF;
+            int surface=rec.charging?0xFF17271F:0xFF211B2D;
+            LinearLayout card=card(surface,accent);
             TextView title=text((rec.charging?"CHARGED":"USED")+"  "+String.format(java.util.Locale.US,"%.1f mAh",rec.mah),18);
+            title.setTextColor(accent);
             title.setTypeface(Typeface.DEFAULT,Typeface.BOLD);
             card.addView(title,full());
             TextView details=text(rec.date()+"  •  "+rec.duration(),13);
