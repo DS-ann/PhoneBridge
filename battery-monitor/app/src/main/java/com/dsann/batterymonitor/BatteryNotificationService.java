@@ -47,6 +47,8 @@ public class BatteryNotificationService extends Service {
         }
         BatteryReader.Reading r = BatteryReader.read(this);
         SessionStore.sample(this, r);
+        BatteryWearStore.update(this);
+        BatteryWearStore.Snapshot wear = BatteryWearStore.get(this);
         double mah = SessionStore.getActiveMah(this);
         NotificationManager nm = (NotificationManager) getSystemService(NOTIFICATION_SERVICE);
         if (nm != null) nm.notify(NOTIFICATION_ID, buildNotification(r.compact(), mah));
@@ -63,7 +65,7 @@ public class BatteryNotificationService extends Service {
                 : new Notification.Builder(this);
         b.setSmallIcon(android.R.drawable.ic_menu_info_details)
                 .setVisibility(Notification.VISIBILITY_PUBLIC)
-                .setContentTitle(String.format(Locale.US, "Battery  •  Used %.1f mAh", mah))
+                .setContentTitle(String.format(Locale.US, "Battery  •  Used %.1f mAh%s", mah, wear.available() ? String.format(Locale.US, "  •  Wear %.1f%%", wear.wear) : ""))
                 .setContentText(text)
                 .setContentIntent(pi)
                 .setOngoing(true)
