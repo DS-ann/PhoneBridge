@@ -9,7 +9,7 @@ import java.util.Locale;
 
 final class SessionStore {
     private static final String PREFS="history", KEY_HISTORY="records", KEY_START="start",
-            KEY_LAST="last", KEY_MAH="mah", KEY_CHARGING="charging";
+            KEY_LAST="last", KEY_MAH="mah", KEY_CHARGING="charging", KEY_MIN_CURRENT="min_current", KEY_MAX_CURRENT="max_current", KEY_START_PERCENT="start_percent", KEY_LAST_PERCENT="last_percent";
     private static final long MAX_GAP=10*60*1000L;
     private SessionStore(){}
 
@@ -20,7 +20,7 @@ final class SessionStore {
         android.content.SharedPreferences p=c.getSharedPreferences(PREFS,Context.MODE_PRIVATE);
         long start=p.getLong(KEY_START,0), last=p.getLong(KEY_LAST,0);
         boolean old=p.getBoolean(KEY_CHARGING,charging);
-        double mah=Double.longBitsToDouble(p.getLong(KEY_MAH,Double.doubleToLongBits(0)));
+        double mah=Double.longBitsToDouble(p.getLong(KEY_MAH,Double.doubleToLongBits(0)));\n        double currentMa=r.currentUa/1000.0; int percent=getBatteryPercent(c);\n        double minCurrent=Double.longBitsToDouble(p.getLong(KEY_MIN_CURRENT,Double.doubleToLongBits(Double.NaN)));\n        double maxCurrent=Double.longBitsToDouble(p.getLong(KEY_MAX_CURRENT,Double.doubleToLongBits(Double.NaN)));\n        int startPercent=p.getInt(KEY_START_PERCENT,-1);\n        if(Double.isNaN(minCurrent)||Double.isNaN(maxCurrent)){minCurrent=maxCurrent=currentMa;}else{minCurrent=Math.min(minCurrent,currentMa);maxCurrent=Math.max(maxCurrent,currentMa);}\n        if(startPercent<0&&percent>=0)startPercent=percent;
         if(start==0||last==0||now-last>MAX_GAP||old!=charging){
             if(start!=0&&last!=0)addRecord(p,start,last,old,mah);
             start=last=now; mah=0;
@@ -41,7 +41,7 @@ final class SessionStore {
         boolean charging=p.getBoolean(KEY_CHARGING,false);
         double mah=Double.longBitsToDouble(p.getLong(KEY_MAH,Double.doubleToLongBits(0)));
         addRecord(p,start,last,charging,mah);
-        p.edit().remove(KEY_START).remove(KEY_LAST).remove(KEY_MAH).remove(KEY_CHARGING).apply();
+        p.edit().remove(KEY_START).remove(KEY_LAST).remove(KEY_MAH).remove(KEY_MIN_CURRENT).remove(KEY_MAX_CURRENT).remove(KEY_START_PERCENT).remove(KEY_LAST_PERCENT).remove(KEY_CHARGING).apply();
     }
 
     static synchronized ArrayList<Record> getRecords(Context c){
@@ -66,7 +66,7 @@ final class SessionStore {
                                   boolean charging,double mah){
         if(end<=start||mah<0.01)return;
         String old=p.getString(KEY_HISTORY,"");
-        String rec=start+"|"+end+"|"+(charging?"1":"0")+"|"+String.format(Locale.US,"%.1f",mah);
+        String rec=start+"|"+end+"|"+(charging?"1":"0")+"|"+String.format(Locale.US,"%.1f",mah)+"|"+String.format(Locale.US,"%.1f",maxCurrent)+"|"+String.format(Locale.US,"%.1f",minCurrent)+"|"+startPercent+"|"+endPercent;
         String s=(old==null||old.isEmpty())?rec:old+"\n"+rec;
         String[] a=s.split("\\n");
         if(a.length>100){
@@ -77,7 +77,7 @@ final class SessionStore {
         p.edit().putString(KEY_HISTORY,s).apply();
     }
 
-    private static boolean isCharging(Context c){
+    private static int getBatteryPercent(Context c){ Intent i=c.registerReceiver(null,new android.content.IntentFilter(Intent.ACTION_BATTERY_CHANGED)); if(i==null)return -1; int level=i.getIntExtra(android.os.BatteryManager.EXTRA_LEVEL,-1), scale=i.getIntExtra(android.os.BatteryManager.EXTRA_SCALE,100); return level<0||scale<=0?-1:Math.round(level*100f/scale); }\n\n    private static boolean isCharging(Context c){
         Intent i=c.registerReceiver(null,new android.content.IntentFilter(Intent.ACTION_BATTERY_CHANGED));
         if(i==null)return false;
         return i.getIntExtra(android.os.BatteryManager.EXTRA_PLUGGED,0)!=0;
