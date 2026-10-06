@@ -5,15 +5,13 @@
     android:viewportWidth="108"
     android:viewportHeight="108">
 
-    <!-- Deep circular tech backdrop -->
     <path
         android:fillColor="#080D12"
-        android:pathData="M54,4 A50,50 0,1 0,54 104 A50,50 0,1 0,54 4" />
+        android:pathData="M54,4 C81.6,4 104,26.4 104,54 C104,81.6 81.6,104 54,104 C26.4,104 4,81.6 4,54 C4,26.4 26.4,4 54,4 Z" />
     <path
         android:fillColor="#102331"
-        android:pathData="M54,7 A47,47 0,1 0,54 101 A47,47 0,1 0,54 7" />
+        android:pathData="M54,7 C79.96,7 101,28.04 101,54 C101,79.96 79.96,101 54,101 C28.04,101 7,79.96 7,54 C7,28.04 28.04,7 54,7 Z" />
 
-    <!-- ECG / current waveform -->
     <path
         android:fillColor="#00000000"
         android:strokeColor="#21D4FD"
@@ -27,7 +25,6 @@
         android:strokeLineCap="round"
         android:pathData="M59,55 L67,55 L71,67 L75,43 L79,55 L84,55 L98,55" />
 
-    <!-- Metallic battery body -->
     <path
         android:fillColor="#111820"
         android:pathData="M34,22 L74,22 C78,22 81,25 81,29 L81,82 C81,86 78,89 74,89 L34,89 C30,89 27,86 27,82 L27,29 C27,25 30,22 34,22 Z" />
@@ -35,7 +32,6 @@
         android:fillColor="#35424C"
         android:pathData="M34,24 L74,24 C76.8,24 79,26.2 79,29 L79,82 C79,84.8 76.8,87 74,87 L34,87 C31.2,87 29,84.8 29,82 L29,29 C29,26.2 31.2,24 34,24 Z" />
 
-    <!-- Top terminal plate -->
     <path
         android:fillColor="#1C252D"
         android:pathData="M30,24 L78,24 L78,34 L30,34 Z" />
@@ -46,7 +42,6 @@
         android:fillColor="#DCE5EA"
         android:pathData="M60,19 L69,19 L69,25 L60,25 Z" />
 
-    <!-- Glass window -->
     <path
         android:fillColor="#071116"
         android:pathData="M34,35 L72,35 C74.8,35 77,37.2 77,40 L77,77 C77,79.8 74.8,82 72,82 L34,82 C31.2,82 29,79.8 29,77 L29,40 C29,37.2 31.2,35 34,35 Z" />
@@ -60,17 +55,14 @@
         android:fillColor="#76FFB2"
         android:pathData="M34,54 L39,54 L39,79 L34,79 C31.8,79 30,77.2 30,75 L30,58 C30,55.8 31.8,54 34,54 Z" />
 
-    <!-- Gloss highlight -->
     <path
         android:fillColor="#66FFFFFF"
         android:pathData="M34,38 L39,38 L39,76 L34,76 C32.3,76 31,74.7 31,73 L31,41 C31,39.3 32.3,38 34,38 Z" />
 
-    <!-- Battery level line -->
     <path
         android:fillColor="#B8FFD2"
         android:pathData="M34,52 L72,52 L72,54 L34,54 Z" />
 
-    <!-- Small plus/minus marks -->
     <path
         android:fillColor="#E7EDF2"
         android:pathData="M41,27 L45,27 L45,31 L41,31 Z" />
@@ -78,7 +70,6 @@
         android:fillColor="#E7EDF2"
         android:pathData="M63,28 L68,28 L68,30 L63,30 Z" />
 
-    <!-- Bottom metallic rim -->
     <path
         android:fillColor="#172129"
         android:pathData="M30,82 L78,82 L74,87 L34,87 Z" />
