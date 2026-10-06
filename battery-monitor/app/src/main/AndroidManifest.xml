@@ -7,7 +7,7 @@
 
     <application
         android:allowBackup="false"
-        android:label="Battery Monitor"
+        android:label="BatteryPulse"
         android:icon="@drawable/battery_logo"
         android:roundIcon="@drawable/battery_logo"
         android:theme="@style/AppTheme"
