@@ -61,12 +61,17 @@ public class BatteryNotificationService extends Service {
         if (Build.VERSION.SDK_INT >= 23) flags |= PendingIntent.FLAG_IMMUTABLE;
         PendingIntent pi = PendingIntent.getActivity(this, 0, open, flags);
 
+        boolean wearAvailable = wear != null && wear.available();
+        String wearText = wearAvailable
+                ? String.format(Locale.US, "  •  Wear %.1f%%", wear.wear)
+                : "";
+
         Notification.Builder b = Build.VERSION.SDK_INT >= 26
                 ? new Notification.Builder(this, CHANNEL_ID)
                 : new Notification.Builder(this);
         b.setSmallIcon(android.R.drawable.ic_menu_info_details)
                 .setVisibility(Notification.VISIBILITY_PUBLIC)
-                .setContentTitle(String.format(Locale.US, "Battery  •  Used %.1f mAh%s", mah, wear.available() ? String.format(Locale.US, "  •  Wear %.1f%%", wear.wear) : ""))
+                .setContentTitle(String.format(Locale.US, "Battery  •  Used %.1f mAh%s", mah, wearText))
                 .setContentText(text)
                 .setContentIntent(pi)
                 .setOngoing(true)
