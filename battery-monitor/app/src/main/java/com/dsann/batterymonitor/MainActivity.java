@@ -156,7 +156,7 @@ public class MainActivity extends Activity {
             LinearLayout card=new LinearLayout(this);card.setOrientation(LinearLayout.VERTICAL);card.setPadding(dp(12),dp(10),dp(12),dp(10));
             GradientDrawable bg=new GradientDrawable();bg.setColor(0x00000000);bg.setStroke(dp(1),0xFF888888);bg.setCornerRadius(dp(8));card.setBackground(bg);
             TextView title=text((rec.charging?"CHARGED":"USED")+"  "+String.format(java.util.Locale.US,"%.1f mAh",rec.mah),18);
-            TextView details=text(rec.date()+"  •  "+rec.duration(),14);
+            TextView details=text(rec.date()+"  •  "+rec.duration(),14);\n            card.addView(title,full());card.addView(details,top(4));\n            String currentRange=Double.isNaN(rec.minCurrent)?"Current: --":"Current: "+String.format(java.util.Locale.US,"min %+.1f mA  •  max %+.1f mA",rec.minCurrent,rec.maxCurrent);\n            String percentRange=(rec.startPercent>=0&&rec.endPercent>=0)?"Battery: "+rec.startPercent+"% → "+rec.endPercent+"%  ("+String.format(java.util.Locale.US,"%+d%%",rec.endPercent-rec.startPercent)+")":"Battery: --";\n            card.addView(text(currentRange,14),top(4));\n            card.addView(text(percentRange,14),top(2));
             card.addView(title,full());card.addView(details,top(4));
             LinearLayout.LayoutParams cp=full();cp.topMargin=dp(8);historyList.addView(card,cp);
         }
