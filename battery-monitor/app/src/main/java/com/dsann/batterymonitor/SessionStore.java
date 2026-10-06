@@ -66,12 +66,12 @@ final class SessionStore {
             if(oldScreen){
                 onMs+=elapsed; onMah+=segmentMah;
                 if(Double.isNaN(onMin)){onMin=onMax=currentMa;onStartPercent=lastPercent;}
-                onMin=Math.min(onMin,currentMa); onMax=Math.max(onMax,currentMa);
+                if(Math.abs(currentMa)<Math.abs(onMin))onMin=currentMa;\n                if(Math.abs(currentMa)>Math.abs(onMax))onMax=currentMa;
                 if(percent>=0)onEndPercent=percent;
             }else{
                 offMs+=elapsed; offMah+=segmentMah;
                 if(Double.isNaN(offMin)){offMin=offMax=currentMa;offStartPercent=lastPercent;}
-                offMin=Math.min(offMin,currentMa); offMax=Math.max(offMax,currentMa);
+                if(Math.abs(currentMa)<Math.abs(offMin))offMin=currentMa;\n                if(Math.abs(currentMa)>Math.abs(offMax))offMax=currentMa;
                 if(percent>=0)offEndPercent=percent;
             }
             last=now;
