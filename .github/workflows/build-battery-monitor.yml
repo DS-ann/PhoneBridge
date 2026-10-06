@@ -1,5 +1,5 @@
 name: Build Battery Monitor • Android 16 Tablet
-
+ 
 on:
   push:
     branches: [ battery-monitor-tab-android16 ]
