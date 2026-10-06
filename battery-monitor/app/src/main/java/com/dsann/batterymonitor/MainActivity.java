@@ -243,7 +243,6 @@ public class MainActivity extends Activity {
     
     private void updateValues(){
         BatteryReader.Reading r=BatteryReader.read(this);
-        if(notificationSwitch!=null&&notificationSwitch.isChecked())SessionStore.sample(this,r);
         voltage.setText(r.voltageText());
         current.setText(r.currentText());
     }
