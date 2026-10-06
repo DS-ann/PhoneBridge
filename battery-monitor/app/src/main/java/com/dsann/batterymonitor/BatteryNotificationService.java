@@ -9,6 +9,7 @@ import android.content.Intent;
 import android.os.Build;
 import android.os.Handler;
 import android.os.IBinder;
+import java.util.Locale;
 
 public class BatteryNotificationService extends Service {
     private static final int NOTIFICATION_ID = 1001;
@@ -26,7 +27,7 @@ public class BatteryNotificationService extends Service {
     @Override public void onCreate() {
         super.onCreate();
         createChannel();
-        startForeground(NOTIFICATION_ID, buildNotification("Reading battery..."));
+        startForeground(NOTIFICATION_ID, buildNotification("Reading battery...", 0.0));
         updateNotification();
         handler.postDelayed(updater, getSamplingInterval());
     }
@@ -42,6 +43,7 @@ public class BatteryNotificationService extends Service {
     private void updateNotification() {
         BatteryReader.Reading r = BatteryReader.read(this);
         SessionStore.sample(this, r);
+        double mah = SessionStore.getActiveMah(this);
         NotificationManager nm = (NotificationManager) getSystemService(NOTIFICATION_SERVICE);
         if (nm != null) nm.notify(NOTIFICATION_ID, buildNotification(r.compact(), mah));
     }
@@ -55,8 +57,9 @@ public class BatteryNotificationService extends Service {
         Notification.Builder b = Build.VERSION.SDK_INT >= 26
                 ? new Notification.Builder(this, CHANNEL_ID)
                 : new Notification.Builder(this);
-        b.setSmallIcon(android.R.drawable.ic_menu_info_details)\n                .setVisibility(Notification.VISIBILITY_PUBLIC)
-                .setContentTitle("Battery")
+        b.setSmallIcon(android.R.drawable.ic_menu_info_details)
+                .setVisibility(Notification.VISIBILITY_PUBLIC)
+                .setContentTitle(String.format(Locale.US, "Battery  •  Used %.1f mAh", mah))
                 .setContentText(text)
                 .setContentIntent(pi)
                 .setOngoing(true)
@@ -70,7 +73,8 @@ public class BatteryNotificationService extends Service {
         if (Build.VERSION.SDK_INT >= 26) {
             NotificationChannel c = new NotificationChannel(
                     CHANNEL_ID, "Battery monitor", NotificationManager.IMPORTANCE_LOW);
-            c.setDescription("Battery voltage and current");\n            c.setLockscreenVisibility(Notification.VISIBILITY_PUBLIC);
+            c.setDescription("Battery voltage, current and session usage");
+            c.setLockscreenVisibility(Notification.VISIBILITY_PUBLIC);
             c.setShowBadge(false);
             NotificationManager nm = (NotificationManager) getSystemService(NOTIFICATION_SERVICE);
             if (nm != null) nm.createNotificationChannel(c);
