@@ -37,6 +37,7 @@ jobs:
           unzip -q /tmp/gradle.zip -d /tmp/gradle
           echo "/tmp/gradle/gradle-8.7/bin" >> "$GITHUB_PATH"
 
+      # Signing fix verification trigger.
       - name: Build debug APK
         working-directory: battery-monitor
         run: gradle --no-daemon --stacktrace assembleDebug
@@ -50,6 +51,7 @@ jobs:
             exit 1
           fi
           echo "$BATTERYPULSE_KEYSTORE_BASE64" | base64 --decode > "$RUNNER_TEMP/batterypulse-release.jks"
+
       - name: Build release APK
         working-directory: battery-monitor
         env:
