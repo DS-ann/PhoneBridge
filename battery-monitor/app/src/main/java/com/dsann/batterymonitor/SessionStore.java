@@ -66,17 +66,22 @@ final class SessionStore {
             if(oldScreen){
                 onMs+=elapsed; onMah+=segmentMah;
                 if(Double.isNaN(onMin)){onMin=onMax=currentMa;onStartPercent=lastPercent;}
-                if(Math.abs(currentMa)<Math.abs(onMin))onMin=currentMa;\n                if(Math.abs(currentMa)>Math.abs(onMax))onMax=currentMa;
+                if(Math.abs(currentMa)<Math.abs(onMin))onMin=currentMa;
+                if(Math.abs(currentMa)>Math.abs(onMax))onMax=currentMa;
                 if(percent>=0)onEndPercent=percent;
             }else{
                 offMs+=elapsed; offMah+=segmentMah;
                 if(Double.isNaN(offMin)){offMin=offMax=currentMa;offStartPercent=lastPercent;}
-                if(Math.abs(currentMa)<Math.abs(offMin))offMin=currentMa;\n                if(Math.abs(currentMa)>Math.abs(offMax))offMax=currentMa;
+                if(Math.abs(currentMa)<Math.abs(offMin))offMin=currentMa;
+                if(Math.abs(currentMa)>Math.abs(offMax))offMax=currentMa;
                 if(percent>=0)offEndPercent=percent;
             }
             last=now;
             if(Double.isNaN(minCurrent)){minCurrent=maxCurrent=currentMa;}
-            else {minCurrent=Math.min(minCurrent,currentMa);maxCurrent=Math.max(maxCurrent,currentMa);}
+            else {
+                if(Math.abs(currentMa)<Math.abs(minCurrent))minCurrent=currentMa;
+                if(Math.abs(currentMa)>Math.abs(maxCurrent))maxCurrent=currentMa;
+            }
         }
         if(percent>=0)lastPercent=percent;
         if(oldScreen!=screenOn && percent>=0){
@@ -112,14 +117,18 @@ final class SessionStore {
                 p.getInt(KEY_ON_START_PERCENT,-1),p.getInt(KEY_ON_END_PERCENT,-1),
                 p.getLong(KEY_OFF_MS,0),readDouble(p,KEY_OFF_MAH,0),readDouble(p,KEY_OFF_MIN,Double.NaN),readDouble(p,KEY_OFF_MAX,Double.NaN),
                 p.getInt(KEY_OFF_START_PERCENT,-1),p.getInt(KEY_OFF_END_PERCENT,-1));
-        p.edit().remove(KEY_START).remove(KEY_LAST).remove(KEY_MAH).remove(KEY_MIN_CURRENT).remove(KEY_MAX_CURRENT)\n                .remove(KEY_START_PERCENT).remove(KEY_LAST_PERCENT).remove(KEY_CHARGING).remove(KEY_SCREEN_ON)\n                .remove(KEY_ON_MS).remove(KEY_ON_MAH).remove(KEY_ON_MIN).remove(KEY_ON_MAX).remove(KEY_ON_START_PERCENT).remove(KEY_ON_END_PERCENT)\n                .remove(KEY_OFF_MS).remove(KEY_OFF_MAH).remove(KEY_OFF_MIN).remove(KEY_OFF_MAX).remove(KEY_OFF_START_PERCENT).remove(KEY_OFF_END_PERCENT).apply();
+        p.edit().remove(KEY_START).remove(KEY_LAST).remove(KEY_MAH).remove(KEY_MIN_CURRENT).remove(KEY_MAX_CURRENT)
+                .remove(KEY_START_PERCENT).remove(KEY_LAST_PERCENT).remove(KEY_CHARGING).remove(KEY_SCREEN_ON)
+                .remove(KEY_ON_MS).remove(KEY_ON_MAH).remove(KEY_ON_MIN).remove(KEY_ON_MAX).remove(KEY_ON_START_PERCENT).remove(KEY_ON_END_PERCENT)
+                .remove(KEY_OFF_MS).remove(KEY_OFF_MAH).remove(KEY_OFF_MIN).remove(KEY_OFF_MAX).remove(KEY_OFF_START_PERCENT).remove(KEY_OFF_END_PERCENT).apply();
     }
 
     static synchronized ArrayList<Record> getRecords(Context c){
         String raw=c.getSharedPreferences(PREFS,Context.MODE_PRIVATE).getString(KEY_HISTORY,"");
         ArrayList<Record> out=new ArrayList<>();
         if(raw==null||raw.isEmpty())return out;
-        String[] lines=raw.split("\\n");
+        String[] lines=raw.split("\
+");
         for(int i=lines.length-1;i>=0;i--){
             String[] x=lines[i].split("\\|");
             if(x.length!=4&&x.length!=8&&x.length!=20)continue;
@@ -149,9 +158,12 @@ final class SessionStore {
                 String.format(Locale.US,"%.1f",maxCurrent)+"|"+String.format(Locale.US,"%.1f",minCurrent)+"|"+startPercent+"|"+endPercent+"|"+
                 onMs+"|"+String.format(Locale.US,"%.1f",onMah)+"|"+String.format(Locale.US,"%.1f",onMin)+"|"+String.format(Locale.US,"%.1f",onMax)+"|"+onStartPercent+"|"+onEndPercent+"|"+
                 offMs+"|"+String.format(Locale.US,"%.1f",offMah)+"|"+String.format(Locale.US,"%.1f",offMin)+"|"+String.format(Locale.US,"%.1f",offMax)+"|"+offStartPercent+"|"+offEndPercent;
-        String s=(old==null||old.isEmpty())?rec:old+"\n"+rec;
-        String[] a=s.split("\\n");
-        if(a.length>100){StringBuilder b=new StringBuilder();for(int i=a.length-100;i<a.length;i++){if(b.length()>0)b.append('\n');b.append(a[i]);}s=b.toString();}
+        String s=(old==null||old.isEmpty())?rec:old+"
+"+rec;
+        String[] a=s.split("\
+");
+        if(a.length>100){StringBuilder b=new StringBuilder();for(int i=a.length-100;i<a.length;i++){if(b.length()>0)b.append('
+');b.append(a[i]);}s=b.toString();}
         p.edit().putString(KEY_HISTORY,s).apply();
     }
 
