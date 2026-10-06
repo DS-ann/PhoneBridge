@@ -43,10 +43,10 @@ public class BatteryNotificationService extends Service {
         BatteryReader.Reading r = BatteryReader.read(this);
         SessionStore.sample(this, r);
         NotificationManager nm = (NotificationManager) getSystemService(NOTIFICATION_SERVICE);
-        if (nm != null) nm.notify(NOTIFICATION_ID, buildNotification(r.compact()));
+        if (nm != null) nm.notify(NOTIFICATION_ID, buildNotification(r.compact(), mah));
     }
 
-    private Notification buildNotification(String text) {
+    private Notification buildNotification(String text, double mah) {
         Intent open = new Intent(this, MainActivity.class);
         int flags = PendingIntent.FLAG_UPDATE_CURRENT;
         if (Build.VERSION.SDK_INT >= 23) flags |= PendingIntent.FLAG_IMMUTABLE;
