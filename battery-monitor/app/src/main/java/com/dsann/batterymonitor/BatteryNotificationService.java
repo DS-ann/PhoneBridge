@@ -48,6 +48,7 @@ public class BatteryNotificationService extends Service {
         BatteryReader.Reading r = BatteryReader.read(this);
         SessionStore.sample(this, r);
         BatteryWearStore.update(this);
+        BatteryWearStore.updateEstimatedHealth(this);
         BatteryWearStore.Snapshot wear = BatteryWearStore.get(this);
         double mah = SessionStore.getActiveMah(this);
         NotificationManager nm = (NotificationManager) getSystemService(NOTIFICATION_SERVICE);
