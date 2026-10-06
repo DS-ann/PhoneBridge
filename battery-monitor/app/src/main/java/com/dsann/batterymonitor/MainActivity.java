@@ -92,9 +92,9 @@ public class MainActivity extends Activity {
         LinearLayout metrics=new LinearLayout(this);
         metrics.setOrientation(LinearLayout.HORIZONTAL);
         
-        LinearLayout voltageCard=metricCard("VOLTAGE","-- V",0xFF151C25);
+        LinearLayout voltageCard=metricCard("VOLTAGE","-- V",0xFF172334,0xFF63B3FF);
         voltage=(TextView)voltageCard.getTag();
-        LinearLayout currentCard=metricCard("CURRENT","-- mA",0xFF152019);
+        LinearLayout currentCard=metricCard("CURRENT","-- mA",0xFF17271F,0xFF63E6A8);
         current=(TextView)currentCard.getTag();
         metrics.addView(voltageCard,new LinearLayout.LayoutParams(0,-2,1));
         LinearLayout.LayoutParams curLp=new LinearLayout.LayoutParams(0,-2,1);
@@ -102,7 +102,7 @@ public class MainActivity extends Activity {
         metrics.addView(currentCard,curLp);
         r.addView(metrics);
         
-        LinearLayout wearCard=card(0xFF171E1A);
+        LinearLayout wearCard=card(0xFF201B2B,0xFFB58CFF);
         LinearLayout wearTop=new LinearLayout(this);
         wearTop.setGravity(Gravity.CENTER_VERTICAL);
         TextView wearTitle=text("Battery wear",17);
@@ -118,7 +118,7 @@ public class MainActivity extends Activity {
         wearCard.addView(wearSub,top(3));
         r.addView(wearCard,top(10));
         
-        LinearLayout recording=card();
+        LinearLayout recording=card(0xFF211E18,0xFFFFC86B);
         LinearLayout recordingTop=new LinearLayout(this);
         recordingTop.setGravity(Gravity.CENTER_VERTICAL);
         TextView recordingTitle=text("Background recording",17);
@@ -181,7 +181,7 @@ public class MainActivity extends Activity {
         TextView sub=text("Measured energy use across recording sessions.",13);
         sub.setTextColor(0xFF707070);
         r.addView(sub,top(2));
-        Button clear=actionButton("Clear history");
+        Button clear=actionButton("Clear history before 1 month");
         r.addView(clear,top(10));
         clear.setOnClickListener(v->{SessionStore.clear(this);refreshHistory();});
         ScrollView s=new ScrollView(this);
@@ -369,7 +369,7 @@ public class MainActivity extends Activity {
         GradientDrawable bg=new GradientDrawable();
         bg.setColor(color == Color.WHITE ? 0xFF171A20 : color);
         bg.setCornerRadius(dp(14));
-        bg.setStroke(dp(1),0xFF2A3039);
+        bg.setStroke(dp(1),0xFF303744);
         c.setBackground(bg);
         if(Build.VERSION.SDK_INT>=21)c.setElevation(dp(1));
         return c;
@@ -391,10 +391,10 @@ public class MainActivity extends Activity {
     }
     
     private void selectTab(boolean monitor){
-        monitorTab.setTextColor(monitor?0xFFF2F4F7:0xFF8E96A3);
-        historyTab.setTextColor(monitor?0xFF8E96A3:0xFFF2F4F7);
-        monitorTab.setBackground(round(monitor?0xFF242932:0x00000000,12));
-        historyTab.setBackground(round(monitor?0x00000000:0xFF242932,12));
+        monitorTab.setTextColor(monitor?0xFF7CC7FF:0xFF8E96A3);
+        historyTab.setTextColor(monitor?0xFF8E96A3:0xFFB58CFF);
+        monitorTab.setBackground(round(monitor?0xFF172334:0x00000000,12));
+        historyTab.setBackground(round(monitor?0x00000000:0xFF211B2D,12));
     }
     
     private GradientDrawable round(int color,int radius){
