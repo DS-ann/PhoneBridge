@@ -123,7 +123,12 @@ final class SessionStore {
                 .remove(KEY_OFF_MS).remove(KEY_OFF_MAH).remove(KEY_OFF_MIN).remove(KEY_OFF_MAX).remove(KEY_OFF_START_PERCENT).remove(KEY_OFF_END_PERCENT).apply();
     }
 
-    static synchronized double getActiveMah(Context c){\n        android.content.SharedPreferences p=c.getSharedPreferences(PREFS,Context.MODE_PRIVATE);\n        return readDouble(p,KEY_MAH,0);\n    }\n\n    static synchronized ArrayList<Record> getRecords(Context c){
+    static synchronized double getActiveMah(Context c){
+        android.content.SharedPreferences p=c.getSharedPreferences(PREFS,Context.MODE_PRIVATE);
+        return readDouble(p,KEY_MAH,0);
+    }
+
+    static synchronized ArrayList<Record> getRecords(Context c){
         android.content.SharedPreferences p=c.getSharedPreferences(PREFS,Context.MODE_PRIVATE);
         String raw=p.getString(KEY_HISTORY,"");
         ArrayList<Record> out=new ArrayList<>();
