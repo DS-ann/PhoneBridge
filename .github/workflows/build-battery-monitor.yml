@@ -41,20 +41,26 @@ jobs:
         working-directory: battery-monitor
         run: gradle --no-daemon --stacktrace assembleDebug
 
-      - name: Prepare BatteryPulse release signing
+      - name: Prepare and validate BatteryPulse release signing
         env:
           BATTERYPULSE_KEYSTORE_BASE64: ${{ secrets.BATTERYPULSE_KEYSTORE_BASE64 }}
+          BATTERYPULSE_STORE_PASSWORD: ${{ secrets.BATTERYPULSE_STORE_PASSWORD }}
+          BATTERYPULSE_KEY_ALIAS: ${{ secrets.BATTERYPULSE_KEY_ALIAS }}
         run: |
-          if [ -z "$BATTERYPULSE_KEYSTORE_BASE64" ]; then
-            echo "BATTERYPULSE_KEYSTORE_BASE64 is not configured." >&2
+          set -euo pipefail
+          if [ -z "$BATTERYPULSE_KEYSTORE_BASE64" ] || [ -z "$BATTERYPULSE_STORE_PASSWORD" ] || [ -z "$BATTERYPULSE_KEY_ALIAS" ]; then
+            echo "BatteryPulse signing secrets are incomplete." >&2
             exit 1
           fi
-          echo "$BATTERYPULSE_KEYSTORE_BASE64" | base64 --decode > "$RUNNER_TEMP/batterypulse-release.jks"
+          printf '%s' "$BATTERYPULSE_KEYSTORE_BASE64" | base64 --decode > "$RUNNER_TEMP/batterypulse-release.p12"
+          keytool -list -storetype PKCS12 -keystore "$RUNNER_TEMP/batterypulse-release.p12" -storepass "$BATTERYPULSE_STORE_PASSWORD" -alias "$BATTERYPULSE_KEY_ALIAS" >/dev/null
+          chmod 600 "$RUNNER_TEMP/batterypulse-release.p12"
+          echo "BatteryPulse PKCS12 keystore validated."
 
       - name: Build release APK
         working-directory: battery-monitor
         env:
-          BATTERYPULSE_KEYSTORE_PATH: ${{ runner.temp }}/batterypulse-release.jks
+          BATTERYPULSE_KEYSTORE_PATH: ${{ runner.temp }}/batterypulse-release.p12
           BATTERYPULSE_STORE_PASSWORD: ${{ secrets.BATTERYPULSE_STORE_PASSWORD }}
           BATTERYPULSE_KEY_ALIAS: ${{ secrets.BATTERYPULSE_KEY_ALIAS }}
           BATTERYPULSE_KEY_PASSWORD: ${{ secrets.BATTERYPULSE_KEY_PASSWORD }}
