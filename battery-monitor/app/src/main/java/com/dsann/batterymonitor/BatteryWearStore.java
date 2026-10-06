@@ -110,6 +110,8 @@ final class BatteryWearStore {
 
         boolean available() { return wear >= 0 && health >= 0; }
 
+        double designCapacityMah() { return designUah > 0 ? designUah / 1000.0 : 0; }
+
         String capacityText() {
             if (!available() || fullUah <= 0 || designUah <= 0) return "";
             return String.format(java.util.Locale.US, "%.0f / %.0f mAh",
