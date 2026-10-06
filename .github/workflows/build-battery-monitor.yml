@@ -1,6 +1,6 @@
 name: Build Battery Monitor • Android 16 Tablet
 
-on:
+on: 
   push:
     branches: [ battery-monitor-tab-android16 ]
     paths:
