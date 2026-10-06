@@ -59,6 +59,7 @@ final class SessionStore {
             onMs=offMs=0; onMah=offMah=0;
             onMin=onMax=offMin=offMax=Double.NaN;
             onStartPercent=onEndPercent=offStartPercent=offEndPercent=-1;
+            if (screenOn) onStartPercent=percent; else offStartPercent=percent;
         } else {
             long elapsed=Math.max(0,now-last);
             double segmentMah=Math.abs(currentMa)*(elapsed/3600000.0);
