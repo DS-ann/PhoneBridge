@@ -257,6 +257,7 @@ public class MainActivity extends Activity {
             expanded.setVisibility(View.GONE);
             addScreenDetails(expanded,"Screen ON",rec.onMs,rec.onMah,rec.onMin,rec.onMax,rec.onStartPercent,rec.onEndPercent);
             addScreenDetails(expanded,"Screen OFF",rec.offMs,rec.offMah,rec.offMin,rec.offMax,rec.offStartPercent,rec.offEndPercent);
+            if(rec.charging) addChargeHealthDetails(expanded,rec);
             card.addView(expanded,top(10));
             TextView hint=text("Tap for screen details",11);
             hint.setTextColor(0xFF7E8794);
@@ -272,6 +273,46 @@ public class MainActivity extends Activity {
         }
     }
     
+    private void addChargeHealthDetails(LinearLayout parent,SessionStore.Record rec){
+        int delta=rec.endPercent-rec.startPercent;
+        TextView heading=text("Charging health",14);
+        heading.setTypeface(Typeface.DEFAULT,Typeface.BOLD);
+        parent.addView(heading,top(10));
+
+        if(delta<1||rec.mah<0.1){
+            parent.addView(text("Not enough charging data",12),top(2));
+            return;
+        }
+
+        double estimatedCapacity=rec.mah*100.0/delta;
+        BatteryWearStore.Snapshot raw=BatteryWearStore.get(this);
+        double design=raw.designCapacityMah();
+        double health=design>0?estimatedCapacity*100.0/design:-1;
+        double wear=health>=0?Math.max(0,100-health):-1;
+
+        // AccuBattery's public definition: efficiency = amount charged / charge-cycle wear.
+        // We use a lightweight SOC-based approximation because the proprietary voltage wear
+        // curve is not publicly specified in full.
+        double chargedFraction=Math.max(0,delta)/100.0;
+        double avgSoc=(rec.startPercent+rec.endPercent)/2.0/100.0;
+        double wearCycles=chargedFraction*(0.25+0.75*Math.pow(avgSoc,4));
+        double efficiency=wearCycles>0?chargedFraction/wearCycles*100.0:0;
+
+        parent.addView(text("Estimated capacity: "+String.format(java.util.Locale.US,"%.0f mAh",estimatedCapacity)
+                +(design>0?"  •  Design: "+String.format(java.util.Locale.US,"%.0f mAh",design):""),12),top(2));
+        parent.addView(text((health>=0?"Health: "+String.format(java.util.Locale.US,"%.1f%%",health)
+                +"  •  Wear: "+String.format(java.util.Locale.US,"%.1f%%",wear)
+                +"  •  Efficiency: "+String.format(java.util.Locale.US,"%.0f%%",efficiency)
+                +"  •  Wear cycles: "+String.format(java.util.Locale.US,"%.2f",wearCycles)
+                :"Health: --  •  Wear: --  •  Efficiency: "+String.format(java.util.Locale.US,"%.0f%%",efficiency)
+                +"  •  Wear cycles: "+String.format(java.util.Locale.US,"%.2f",wearCycles)),12),top(2));
+        if(delta<60){
+            TextView note=text("Short charge — excluded from long-term health average",11);
+            note.setTextColor(0xFF7E8794);
+            parent.addView(note,top(3));
+        }
+    }
+
     private void addScreenDetails(LinearLayout parent,String label,long ms,double mah,double min,double max,int startPercent,int endPercent){
         TextView heading=text(label,14);
         heading.setTypeface(Typeface.DEFAULT,Typeface.BOLD);
