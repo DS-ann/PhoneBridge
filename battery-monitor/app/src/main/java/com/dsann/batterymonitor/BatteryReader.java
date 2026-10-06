@@ -36,22 +36,7 @@ final class BatteryReader {
             );
         }
 
-        // Keep one persistent su process instead of starting su once per read.
-        RootReading rr = readAsRoot();
-        if (rr != null) {
-            currentRaw = rr.currentRaw;
-            if (voltageMv == null) voltageMv = rr.voltageMv;
-        }
-
-        if (currentRaw != null) {
-            long currentUa = currentRaw * 100L;
-            return new Reading(
-                    voltageMv != null ? voltageMv * 1000L : Long.MIN_VALUE,
-                    currentUa
-            );
-        }
-
-        // Generic Android/sysfs fallback: these current values are in microamps.
+            // Generic Android/sysfs fallback: these current values are in microamps.
         BatteryManager bm = (BatteryManager) context.getSystemService(Context.BATTERY_SERVICE);
         if (bm != null && Build.VERSION.SDK_INT >= 21) {
             long currentUa = bm.getLongProperty(BatteryManager.BATTERY_PROPERTY_CURRENT_NOW);
@@ -90,20 +75,6 @@ final class BatteryReader {
                 voltageMv != null ? voltageMv * 1000L : Long.MIN_VALUE,
                 Long.MIN_VALUE
         );
-    }
-
-    private static synchronized RootReading readAsRoot() {
-        try {
-            if (rootReader == null || !rootReader.isAlive()) {
-                if (rootReader != null) rootReader.close();
-                rootReader = new RootReader();
-            }
-            return rootReader.read();
-        } catch (Exception e) {
-            if (rootReader != null) rootReader.close();
-            rootReader = null;
-            return null;
-        }
     }
 
     private static Long readSysfs(String path) {
@@ -160,16 +131,6 @@ final class BatteryReader {
             try { stdin.close(); } catch (Exception ignored) {}
             try { stdout.close(); } catch (Exception ignored) {}
             process.destroy();
-        }
-    }
-
-    static final class RootReading {
-        final long currentRaw;
-        final long voltageMv;
-
-        RootReading(long currentRaw, long voltageMv) {
-            this.currentRaw = currentRaw;
-            this.voltageMv = voltageMv;
         }
     }
 
