@@ -209,6 +209,7 @@ public class MainActivity extends Activity {
             voltage.setText(r.voltageText());
             current.setText(r.currentText());
             BatteryWearStore.update(this);
+            BatteryWearStore.updateEstimatedHealth(this);
             BatteryWearStore.Snapshot w=BatteryWearStore.get(this);
             if(w.available()){
                 wearValue.setText(String.format(java.util.Locale.US,"%.1f%% wear",w.wear));
