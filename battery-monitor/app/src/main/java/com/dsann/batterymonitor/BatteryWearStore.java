@@ -13,7 +13,7 @@ final class BatteryWearStore {
     private static final String PREFS="battery_wear";
     private static final String KEY_WEAR="wear_percent",KEY_HEALTH="health_percent",KEY_FULL="full_uah",KEY_DESIGN="design_uah",KEY_UPDATED="updated";
     private static final String KEY_EST_FULL="estimated_full_uah",KEY_EST_HEALTH="estimated_health_percent",KEY_EST_WEAR="estimated_wear_percent",KEY_QUALIFIED="qualified_sessions";
-    private static final String KEY_FULL_SOURCE="full_source",KEY_DESIGN_SOURCE="design_source";
+    private static final String KEY_FULL_SOURCE="full_source",KEY_DESIGN_SOURCE="design_source",KEY_CHARGE_COUNTER="charge_counter_uah";
     private static final String[] FULL_PATHS={"/sys/class/power_supply/battery/charge_full","/sys/class/power_supply/bms/charge_full"};
     private static final String[] DESIGN_PATHS={"/sys/class/power_supply/battery/charge_full_design","/sys/class/power_supply/bms/charge_full_design"};
     private static final int HEALTH_MIN_CHARGE_PERCENT=40;
@@ -23,8 +23,11 @@ final class BatteryWearStore {
 
     static synchronized void update(Context c){
         long full=normalizeCapacity(firstPositive(FULL_PATHS)),design=normalizeCapacity(firstPositive(DESIGN_PATHS));
+        long chargeCounter=readBatteryManagerChargeCounter(c);
+        if(chargeCounter>0 && batteryLevel(c)>=100 && full<=0)full=chargeCounter;
         android.content.SharedPreferences.Editor e=c.getSharedPreferences(PREFS,Context.MODE_PRIVATE).edit();
-        if(full>0)e.putLong(KEY_FULL,full).putString(KEY_FULL_SOURCE,fullSource());
+        if(full>0)e.putLong(KEY_FULL,full).putString(KEY_FULL_SOURCE,firstPositive(FULL_PATHS)>0?fullSource():"BatteryManager charge counter at 100%");
+        if(chargeCounter>0)e.putLong(KEY_CHARGE_COUNTER,chargeCounter);
         if(design>0)e.putLong(KEY_DESIGN,design).putString(KEY_DESIGN_SOURCE,designSource());
         if(full>0&&design>0){
             double health=clamp(full*100.0/design,0,110),wear=Math.max(0,100-health);
@@ -99,6 +102,26 @@ final class BatteryWearStore {
     static boolean isCharging(Context c){Intent i=c.registerReceiver(null,new android.content.IntentFilter(Intent.ACTION_BATTERY_CHANGED));return i!=null&&i.getIntExtra(BatteryManager.EXTRA_PLUGGED,0)!=0;}
     static long getFullUah(){return normalizeCapacity(firstPositive(FULL_PATHS));}
     static long getDesignUah(){return normalizeCapacity(firstPositive(DESIGN_PATHS));}
+    static long getChargeCounterUah(Context c){
+        long v=readBatteryManagerChargeCounter(c);
+        return v>0?v:c.getSharedPreferences(PREFS,Context.MODE_PRIVATE).getLong(KEY_CHARGE_COUNTER,0);
+    }
+    private static long readBatteryManagerChargeCounter(Context c){
+        try{
+            BatteryManager bm=(BatteryManager)c.getSystemService(Context.BATTERY_SERVICE);
+            if(bm==null)return 0;
+            long v=bm.getLongProperty(BatteryManager.BATTERY_PROPERTY_CHARGE_COUNTER);
+            return v>0?v:0;
+        }catch(Exception ignored){return 0;}
+    }
+    private static int batteryLevel(Context c){
+        try{
+            Intent i=c.registerReceiver(null,new android.content.IntentFilter(Intent.ACTION_BATTERY_CHANGED));
+            if(i==null)return -1;
+            int level=i.getIntExtra(BatteryManager.EXTRA_LEVEL,-1),scale=i.getIntExtra(BatteryManager.EXTRA_SCALE,-1);
+            return level>=0&&scale>0?Math.round(level*100f/scale):-1;
+        }catch(Exception ignored){return -1;}
+    }
     static String fullSource(){for(String p:FULL_PATHS)if(readRaw(p)>0)return p;return "Unavailable";}
     static String designSource(){for(String p:DESIGN_PATHS)if(readRaw(p)>0)return p;return "Unavailable";}
     private static long firstPositive(String[] paths){for(String p:paths){long v=readRaw(p);if(v>0)return v;}return 0;}
