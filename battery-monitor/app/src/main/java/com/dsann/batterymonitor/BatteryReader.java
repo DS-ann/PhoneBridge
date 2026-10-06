@@ -5,20 +5,15 @@ import android.os.BatteryManager;
 import android.os.Build;
 
 import java.io.BufferedReader;
-import java.io.BufferedWriter;
 import java.io.File;
 import java.io.FileReader;
 import java.io.IOException;
-import java.io.InputStreamReader;
-import java.io.OutputStreamWriter;
 
 final class BatteryReader {
     private static final String FG_CURRENT =
             "/sys/devices/platform/battery_meter/FG_Current";
     private static final String INSTAT_VOLT =
             "/sys/class/power_supply/battery/InstatVolt";
-
-    private static RootReader rootReader;
 
     private BatteryReader() {}
 
@@ -86,51 +81,6 @@ final class BatteryReader {
             return Long.parseLong(s.trim());
         } catch (Exception ignored) {
             return null;
-        }
-    }
-
-    static final class RootReader {
-        private final Process process;
-        private final BufferedWriter stdin;
-        private final BufferedReader stdout;
-
-        RootReader() throws IOException {
-            process = Runtime.getRuntime().exec(new String[]{"su"});
-            stdin = new BufferedWriter(new OutputStreamWriter(process.getOutputStream()));
-            stdout = new BufferedReader(new InputStreamReader(process.getInputStream()));
-        }
-
-        boolean isAlive() {
-            try {
-                process.exitValue();
-                return false;
-            } catch (IllegalThreadStateException e) {
-                return true;
-            }
-        }
-
-        RootReading read() throws IOException {
-            stdin.write("cat " + FG_CURRENT);
-            stdin.newLine();
-            stdin.write("cat " + INSTAT_VOLT);
-            stdin.newLine();
-            stdin.flush();
-
-            String current = stdout.readLine();
-            String voltage = stdout.readLine();
-            if (current == null || voltage == null) throw new IOException("su closed");
-
-            return new RootReading(
-                    Long.parseLong(current.trim()),
-                    Long.parseLong(voltage.trim())
-            );
-        }
-
-        void close() {
-            try { stdin.write("exit"); stdin.newLine(); stdin.flush(); } catch (Exception ignored) {}
-            try { stdin.close(); } catch (Exception ignored) {}
-            try { stdout.close(); } catch (Exception ignored) {}
-            process.destroy();
         }
     }
 
