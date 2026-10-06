@@ -149,7 +149,7 @@ public class MainActivity extends Activity {
     private final Runnable historyUpdater=new Runnable(){public void run(){if(historyView!=null&&historyView.getVisibility()==View.VISIBLE){refreshHistory();handler.postDelayed(this,10000);}}};
     @Override protected void onResume(){super.onResume();updateValues();handler.removeCallbacks(updater);handler.post(updater);handler.removeCallbacks(historyUpdater);if(historyView!=null&&historyView.getVisibility()==View.VISIBLE){refreshHistory();handler.postDelayed(historyUpdater,10000);}}
     @Override protected void onPause(){handler.removeCallbacks(updater);handler.removeCallbacks(historyUpdater);super.onPause();}
-    private void updateValues(){BatteryReader.Reading r=BatteryReader.read(this);SessionStore.sample(this,r);voltage.setText("Voltage: "+r.voltageText());current.setText("Current: "+r.currentText());}
+    private void updateValues(){BatteryReader.Reading r=BatteryReader.read(this);if(notificationSwitch!=null&&notificationSwitch.isChecked())SessionStore.sample(this,r);voltage.setText("Voltage: "+r.voltageText());current.setText("Current: "+r.currentText());}
     private void refreshHistory(){
         historyList.removeAllViews();ArrayList<SessionStore.Record> rs=SessionStore.getRecords(this);
         if(rs.isEmpty()){historyList.addView(text("No completed sessions yet.",16));return;}
