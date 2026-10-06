@@ -43,7 +43,7 @@ public class MainActivity extends Activity {
         root.addView(monitorView,new LinearLayout.LayoutParams(-1,0,1));
         root.addView(historyView,new LinearLayout.LayoutParams(-1,0,1));historyView.setVisibility(View.GONE);
         m.setOnClickListener(v->{monitorView.setVisibility(View.VISIBLE);historyView.setVisibility(View.GONE);});
-        h.setOnClickListener(v->{monitorView.setVisibility(View.GONE);historyView.setVisibility(View.VISIBLE);refreshHistory();});
+        h.setOnClickListener(v->{monitorView.setVisibility(View.GONE);historyView.setVisibility(View.VISIBLE);refreshHistory();handler.removeCallbacks(historyUpdater);handler.postDelayed(historyUpdater,10000);});
         setContentView(root);
         root.setFocusableInTouchMode(true);
         root.requestFocus();
@@ -146,8 +146,9 @@ public class MainActivity extends Activity {
         Button clear=new Button(this);clear.setText("Clear history");clear.setOnClickListener(v->{SessionStore.clear(this);refreshHistory();});r.addView(clear,top(8));
         ScrollView s=new ScrollView(this);historyList=new LinearLayout(this);historyList.setOrientation(LinearLayout.VERTICAL);s.addView(historyList);r.addView(s,new LinearLayout.LayoutParams(-1,0,1));return r;
     }
-    @Override protected void onResume(){super.onResume();updateValues();handler.removeCallbacks(updater);handler.post(updater);if(historyView!=null&&historyView.getVisibility()==View.VISIBLE)refreshHistory();}
-    @Override protected void onPause(){handler.removeCallbacks(updater);super.onPause();}
+    private final Runnable historyUpdater=new Runnable(){public void run(){if(historyView!=null&&historyView.getVisibility()==View.VISIBLE){refreshHistory();handler.postDelayed(this,10000);}}};
+    @Override protected void onResume(){super.onResume();updateValues();handler.removeCallbacks(updater);handler.post(updater);handler.removeCallbacks(historyUpdater);if(historyView!=null&&historyView.getVisibility()==View.VISIBLE){refreshHistory();handler.postDelayed(historyUpdater,10000);}}
+    @Override protected void onPause(){handler.removeCallbacks(updater);handler.removeCallbacks(historyUpdater);super.onPause();}
     private void updateValues(){BatteryReader.Reading r=BatteryReader.read(this);SessionStore.sample(this,r);voltage.setText("Voltage: "+r.voltageText());current.setText("Current: "+r.currentText());}
     private void refreshHistory(){
         historyList.removeAllViews();ArrayList<SessionStore.Record> rs=SessionStore.getRecords(this);
