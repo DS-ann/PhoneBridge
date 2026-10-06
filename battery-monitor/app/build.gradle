@@ -4,7 +4,7 @@ plugins {
 
 android {
     namespace 'com.dsann.batterymonitor'
-    compileSdk 35
+    compileSdk 36
 
     defaultConfig {
         applicationId 'com.dsann.batterymonitor'
