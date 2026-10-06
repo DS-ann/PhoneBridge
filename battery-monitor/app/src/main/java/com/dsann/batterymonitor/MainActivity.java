@@ -319,7 +319,7 @@ public class MainActivity extends Activity {
         c.addView(l,full());
         TextView v=text(value,25);
         v.setTypeface(Typeface.DEFAULT,Typeface.BOLD);
-        v.setTag(v);
+        c.setTag(v);
         c.addView(v,top(5));
         return c;
     }
