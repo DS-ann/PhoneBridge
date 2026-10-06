@@ -222,6 +222,7 @@ public class MainActivity extends Activity {
         r.addView(data,top(10));
         TextView q=sectionTitle("Measured battery data"); data.addView(q,full());
         addHealthRow(data,"Full charge capacity","--","full");
+        addHealthRow(data,"Measured charge counter","--","counter");
         addHealthRow(data,"Design capacity","--","design");
         addHealthRow(data,"Capacity ratio","--","ratio");
         addHealthRow(data,"Raw health source","--","source");
@@ -277,9 +278,11 @@ public class MainActivity extends Activity {
         }
 
         healthValue("full").setText(w.fullUah>0?String.format(java.util.Locale.US,"%.0f mAh",w.fullCapacityMah()):"Unavailable");
+        long counterUah=BatteryWearStore.getChargeCounterUah(this);
+        healthValue("counter").setText(counterUah>0?String.format(java.util.Locale.US,"%.0f mAh",counterUah/1000.0):"Unavailable");
         healthValue("design").setText(w.designUah>0?String.format(java.util.Locale.US,"%.0f mAh",w.designCapacityMah()):"Unavailable");
         healthValue("ratio").setText(w.measuredCapacityAvailable()?String.format(java.util.Locale.US,"%.1f%%",w.fullCapacityMah()*100/w.designCapacityMah()):"Unavailable");
-        healthValue("source").setText(w.measuredCapacityAvailable()?"Measured • charge_full":"Unavailable");
+        healthValue("source").setText(w.measuredCapacityAvailable()?"Measured • charge_full":w.fullUah>0?"Measured • charge counter at 100%":counterUah>0?"Charge counter available":"Unavailable");
         healthValue("sourcepath").setText(w.fullSource);
         healthValue("estcap").setText(w.estimatedCapacityAvailable()?String.format(java.util.Locale.US,"~%.0f mAh",w.estimatedCapacityMah()):"Need a 40%+ session");
         healthValue("esthealth").setText(w.estimatedHealth>=0?String.format(java.util.Locale.US,"%.1f%%",w.estimatedHealth):w.estimatedCapacityAvailable()?"No design capacity source":"Need more data");
