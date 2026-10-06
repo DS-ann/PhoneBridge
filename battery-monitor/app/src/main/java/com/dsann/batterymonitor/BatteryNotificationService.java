@@ -76,9 +76,12 @@ public class BatteryNotificationService extends Service {
                 .setContentIntent(pi)
                 .setOngoing(true)
                 .setOnlyAlertOnce(true)
+                .setAutoCancel(false)
                 .setShowWhen(false)
                 .setCategory(Notification.CATEGORY_STATUS);
-        return b.build();
+        Notification n = b.build();
+        n.flags |= Notification.FLAG_ONGOING_EVENT | Notification.FLAG_NO_CLEAR;
+        return n;
     }
 
     private void createChannel() {
