@@ -1,13 +1,13 @@
 package com.dsann.batterymonitor;
 
 import android.content.Context;
+import android.content.Intent;
 import android.os.BatteryManager;
 import android.os.Build;
 
 import java.io.BufferedReader;
 import java.io.File;
 import java.io.FileReader;
-import java.io.IOException;
 
 final class BatteryReader {
     private static final String FG_CURRENT =
@@ -19,11 +19,31 @@ final class BatteryReader {
 
     static Reading read(Context context) {
         Long currentRaw = readSysfs(FG_CURRENT);
+
+        // Resolve voltage independently of the current source. The previous
+        // implementation returned early when FG_Current was available, which
+        // prevented the voltage fallbacks from ever running.
         Long voltageMv = readSysfs(INSTAT_VOLT);
 
-        // On this MTK phone FG_Current is reported in 0.1 mA units.
-        // Example: 2437 means 243.7 mA, not 2437 mA.
+        if (voltageMv == null) {
+            Intent battery = context.registerReceiver(
+                    null, new android.content.IntentFilter(Intent.ACTION_BATTERY_CHANGED));
+            if (battery != null) {
+                int mv = battery.getIntExtra(BatteryManager.EXTRA_VOLTAGE, 0);
+                if (mv > 0) voltageMv = (long) mv;
+            }
+        }
+
+        if (voltageMv == null) {
+            Long voltageUv = readSysfs("/sys/class/power_supply/battery/voltage_now");
+            if (voltageUv != null && voltageUv > 0) {
+                voltageMv = Math.round(voltageUv / 1000.0);
+            }
+        }
+
         if (currentRaw != null) {
+            // On this MTK phone FG_Current is reported in 0.1 mA units.
+            // Example: 2437 means 243.7 mA, not 2437 mA.
             long currentUa = currentRaw * 100L;
             return new Reading(
                     voltageMv != null ? voltageMv * 1000L : Long.MIN_VALUE,
@@ -31,7 +51,7 @@ final class BatteryReader {
             );
         }
 
-            // Generic Android/sysfs fallback: these current values are in microamps.
+        // Generic Android/sysfs fallback: these current values are in microamps.
         BatteryManager bm = (BatteryManager) context.getSystemService(Context.BATTERY_SERVICE);
         if (bm != null && Build.VERSION.SDK_INT >= 21) {
             long currentUa = bm.getLongProperty(BatteryManager.BATTERY_PROPERTY_CURRENT_NOW);
@@ -49,21 +69,6 @@ final class BatteryReader {
                     voltageMv != null ? voltageMv * 1000L : Long.MIN_VALUE,
                     fallbackUa
             );
-        }
-
-        if (voltageMv == null) {
-            android.content.Intent battery =
-                    context.registerReceiver(null, new android.content.IntentFilter(
-                            android.content.Intent.ACTION_BATTERY_CHANGED));
-            if (battery != null) {
-                int mv = battery.getIntExtra(BatteryManager.EXTRA_VOLTAGE, 0);
-                if (mv > 0) voltageMv = (long) mv;
-            }
-        }
-
-        if (voltageMv == null) {
-            Long v = readSysfs("/sys/class/power_supply/battery/voltage_now");
-            if (v != null) voltageMv = Math.round(v / 1000.0);
         }
 
         return new Reading(
