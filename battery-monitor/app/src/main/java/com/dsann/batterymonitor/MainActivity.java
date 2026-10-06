@@ -42,7 +42,7 @@ public class MainActivity extends Activity {
         
         LinearLayout root=new LinearLayout(this);
         root.setOrientation(LinearLayout.VERTICAL);
-        root.setBackgroundColor(0xFFF7F7F8);
+        root.setBackgroundColor(0xFFF4F6F9);
         
         LinearLayout header=new LinearLayout(this);
         header.setOrientation(LinearLayout.VERTICAL);
@@ -90,9 +90,9 @@ public class MainActivity extends Activity {
         LinearLayout metrics=new LinearLayout(this);
         metrics.setOrientation(LinearLayout.HORIZONTAL);
         
-        LinearLayout voltageCard=metricCard("VOLTAGE","-- V");
+        LinearLayout voltageCard=metricCard("VOLTAGE","-- V",0xFFF2F7FC);
         voltage=(TextView)voltageCard.getTag();
-        LinearLayout currentCard=metricCard("CURRENT","-- mA");
+        LinearLayout currentCard=metricCard("CURRENT","-- mA",0xFFF2F8F4);
         current=(TextView)currentCard.getTag();
         metrics.addView(voltageCard,new LinearLayout.LayoutParams(0,-2,1));
         LinearLayout.LayoutParams curLp=new LinearLayout.LayoutParams(0,-2,1);
@@ -311,8 +311,8 @@ public class MainActivity extends Activity {
         if(startPercent>=0&&endPercent>=0)parent.addView(text("Battery: "+startPercent+"% → "+endPercent+"%  ("+String.format(java.util.Locale.US,"%+d%%",endPercent-startPercent)+")",12),top(2));
     }
     
-    private LinearLayout metricCard(String label,String value){
-        LinearLayout c=card();
+    private LinearLayout metricCard(String label,String value,int color){
+        LinearLayout c=card(color);
         TextView l=text(label,11);
         l.setTypeface(Typeface.DEFAULT,Typeface.BOLD);
         l.setTextColor(0xFF777777);
@@ -325,7 +325,7 @@ public class MainActivity extends Activity {
     }
     
     private LinearLayout toolCard(String title,String subtitle){
-        LinearLayout c=card();
+        LinearLayout c=card(0xFFFEFCF6);
         TextView t=text(title,16);
         t.setTypeface(Typeface.DEFAULT,Typeface.BOLD);
         c.addView(t,full());
@@ -335,15 +335,18 @@ public class MainActivity extends Activity {
         return c;
     }
     
-    private LinearLayout card(){
+    private LinearLayout card(){return card(Color.WHITE);}
+
+    private LinearLayout card(int color){
         LinearLayout c=new LinearLayout(this);
         c.setOrientation(LinearLayout.VERTICAL);
         c.setPadding(dp(14),dp(13),dp(14),dp(13));
         GradientDrawable bg=new GradientDrawable();
-        bg.setColor(Color.WHITE);
+        bg.setColor(color);
         bg.setCornerRadius(dp(14));
-        bg.setStroke(dp(1),0xFFE2E2E5);
+        bg.setStroke(dp(1),0xFFDDE2E8);
         c.setBackground(bg);
+        if(Build.VERSION.SDK_INT>=21)c.setElevation(dp(1));
         return c;
     }
     
