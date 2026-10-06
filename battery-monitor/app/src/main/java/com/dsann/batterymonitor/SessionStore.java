@@ -127,8 +127,7 @@ final class SessionStore {
         String raw=c.getSharedPreferences(PREFS,Context.MODE_PRIVATE).getString(KEY_HISTORY,"");
         ArrayList<Record> out=new ArrayList<>();
         if(raw==null||raw.isEmpty())return out;
-        String[] lines=raw.split("\
-");
+        String[] lines=raw.split("\\n");
         for(int i=lines.length-1;i>=0;i--){
             String[] x=lines[i].split("\\|");
             if(x.length!=4&&x.length!=8&&x.length!=20)continue;
@@ -158,10 +157,8 @@ final class SessionStore {
                 String.format(Locale.US,"%.1f",maxCurrent)+"|"+String.format(Locale.US,"%.1f",minCurrent)+"|"+startPercent+"|"+endPercent+"|"+
                 onMs+"|"+String.format(Locale.US,"%.1f",onMah)+"|"+String.format(Locale.US,"%.1f",onMin)+"|"+String.format(Locale.US,"%.1f",onMax)+"|"+onStartPercent+"|"+onEndPercent+"|"+
                 offMs+"|"+String.format(Locale.US,"%.1f",offMah)+"|"+String.format(Locale.US,"%.1f",offMin)+"|"+String.format(Locale.US,"%.1f",offMax)+"|"+offStartPercent+"|"+offEndPercent;
-        String s=(old==null||old.isEmpty())?rec:old+"
-"+rec;
-        String[] a=s.split("\
-");
+        String s=(old==null||old.isEmpty())?rec:old+"\n"+rec;
+        String[] a=s.split("\\n");
         if(a.length>100){StringBuilder b=new StringBuilder();for(int i=a.length-100;i<a.length;i++){if(b.length()>0)b.append('
 ');b.append(a[i]);}s=b.toString();}
         p.edit().putString(KEY_HISTORY,s).apply();
