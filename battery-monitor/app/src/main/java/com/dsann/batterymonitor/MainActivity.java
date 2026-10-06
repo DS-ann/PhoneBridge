@@ -435,6 +435,19 @@ public class MainActivity extends Activity {
         return c;
     }
     
+    private LinearLayout metricCard(String label,String value,int color,int strokeColor){
+        LinearLayout c=card(color,strokeColor);
+        TextView l=text(label,11);
+        l.setTypeface(Typeface.DEFAULT,Typeface.BOLD);
+        l.setTextColor(0xFF8E96A3);
+        c.addView(l,full());
+        TextView v=text(value,25);
+        v.setTypeface(Typeface.DEFAULT,Typeface.BOLD);
+        c.setTag(v);
+        c.addView(v,top(5));
+        return c;
+    }
+    
     private LinearLayout toolCard(String title,String subtitle){
         LinearLayout c=card(0xFFFEFCF6);
         TextView t=text(title,16);
