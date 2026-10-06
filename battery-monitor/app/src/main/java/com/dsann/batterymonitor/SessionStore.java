@@ -6,6 +6,7 @@ import android.os.PowerManager;
 import java.text.SimpleDateFormat;
 import java.util.ArrayList;
 import java.util.Date;
+import java.util.Calendar;
 import java.util.Locale;
 
 final class SessionStore {
@@ -169,7 +170,25 @@ final class SessionStore {
         return out;
     }
 
-    static synchronized void clear(Context c){c.getSharedPreferences(PREFS,Context.MODE_PRIVATE).edit().remove(KEY_HISTORY).apply();}
+    static synchronized void clear(Context c){
+        android.content.SharedPreferences p=c.getSharedPreferences(PREFS,Context.MODE_PRIVATE);
+        String raw=p.getString(KEY_HISTORY,"");
+        if(raw==null||raw.isEmpty())return;
+        Calendar cutoff=Calendar.getInstance();
+        cutoff.add(Calendar.MONTH,-1);
+        long cutoffMs=cutoff.getTimeInMillis();
+        StringBuilder keep=new StringBuilder();
+        for(String line:raw.split("\\n")){
+            try{
+                String[] x=line.split("\\|");
+                if(x.length>=2 && Long.parseLong(x[1])>=cutoffMs){
+                    if(keep.length()>0)keep.append('\\n');
+                    keep.append(line);
+                }
+            }catch(Exception ignored){}
+        }
+        p.edit().putString(KEY_HISTORY,keep.toString()).apply();
+    }
 
     private static void addRecord(android.content.SharedPreferences p,long start,long end,boolean charging,double mah,double minCurrent,double maxCurrent,
                                   int startPercent,int endPercent,long onMs,double onMah,double onMin,double onMax,int onStartPercent,int onEndPercent,
