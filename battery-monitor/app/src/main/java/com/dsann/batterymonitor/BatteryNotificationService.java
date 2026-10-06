@@ -55,7 +55,7 @@ public class BatteryNotificationService extends Service {
         Notification.Builder b = Build.VERSION.SDK_INT >= 26
                 ? new Notification.Builder(this, CHANNEL_ID)
                 : new Notification.Builder(this);
-        b.setSmallIcon(android.R.drawable.ic_menu_info_details)
+        b.setSmallIcon(android.R.drawable.ic_menu_info_details)\n                .setVisibility(Notification.VISIBILITY_PUBLIC)
                 .setContentTitle("Battery")
                 .setContentText(text)
                 .setContentIntent(pi)
@@ -70,7 +70,7 @@ public class BatteryNotificationService extends Service {
         if (Build.VERSION.SDK_INT >= 26) {
             NotificationChannel c = new NotificationChannel(
                     CHANNEL_ID, "Battery monitor", NotificationManager.IMPORTANCE_LOW);
-            c.setDescription("Battery voltage and current");
+            c.setDescription("Battery voltage and current");\n            c.setLockscreenVisibility(Notification.VISIBILITY_PUBLIC);
             c.setShowBadge(false);
             NotificationManager nm = (NotificationManager) getSystemService(NOTIFICATION_SERVICE);
             if (nm != null) nm.createNotificationChannel(c);
