@@ -294,10 +294,8 @@ public class MainActivity extends Activity {
         // AccuBattery's public definition: efficiency = amount charged / charge-cycle wear.
         // We use a lightweight SOC-based approximation because the proprietary voltage wear
         // curve is not publicly specified in full.
-        double chargedFraction=Math.max(0,delta)/100.0;
-        double avgSoc=(rec.startPercent+rec.endPercent)/2.0/100.0;
-        double wearCycles=chargedFraction*(0.25+0.75*Math.pow(avgSoc,4));
-        double efficiency=wearCycles>0?chargedFraction/wearCycles*100.0:0;
+        double wearCycles=BatteryWearStore.wearCycles(rec.startPercent,rec.endPercent);
+        double efficiency=BatteryWearStore.chargeEfficiency(rec.startPercent,rec.endPercent);
 
         parent.addView(text("Estimated capacity: "+String.format(java.util.Locale.US,"%.0f mAh",estimatedCapacity)
                 +(design>0?"  •  Design: "+String.format(java.util.Locale.US,"%.0f mAh",design):""),12),top(2));
@@ -307,8 +305,8 @@ public class MainActivity extends Activity {
                 +"  •  Wear cycles: "+String.format(java.util.Locale.US,"%.2f",wearCycles)
                 :"Health: --  •  Wear: --  •  Efficiency: "+String.format(java.util.Locale.US,"%.0f%%",efficiency)
                 +"  •  Wear cycles: "+String.format(java.util.Locale.US,"%.2f",wearCycles)),12),top(2));
-        if(delta<60){
-            TextView note=text("Short charge — excluded from long-term health average",11);
+        if(delta<BatteryWearStore.healthQualificationPercent()){
+            TextView note=text("Short charge — excluded from long-term health average (<40%)",11);
             note.setTextColor(0xFF7E8794);
             parent.addView(note,top(3));
         }
