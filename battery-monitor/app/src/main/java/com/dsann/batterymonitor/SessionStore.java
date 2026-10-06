@@ -159,8 +159,7 @@ final class SessionStore {
                 offMs+"|"+String.format(Locale.US,"%.1f",offMah)+"|"+String.format(Locale.US,"%.1f",offMin)+"|"+String.format(Locale.US,"%.1f",offMax)+"|"+offStartPercent+"|"+offEndPercent;
         String s=(old==null||old.isEmpty())?rec:old+"\n"+rec;
         String[] a=s.split("\\n");
-        if(a.length>100){StringBuilder b=new StringBuilder();for(int i=a.length-100;i<a.length;i++){if(b.length()>0)b.append('
-');b.append(a[i]);}s=b.toString();}
+        if(a.length>100){StringBuilder b=new StringBuilder();for(int i=a.length-100;i<a.length;i++){if(b.length()>0)b.append('\\n');b.append(a[i]);}s=b.toString();}
         p.edit().putString(KEY_HISTORY,s).apply();
     }
 
