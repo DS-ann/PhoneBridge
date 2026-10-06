@@ -1,8 +1,8 @@
-name: Build Battery Monitor
+name: Build Battery Monitor • Android 16 Tablet
 
 on:
   push:
-    branches: [ battery-monitor ]
+    branches: [ battery-monitor-tab-android16 ]
     paths:
       - 'battery-monitor/**'
       - '.github/workflows/build-battery-monitor.yml'
@@ -18,7 +18,7 @@ permissions:
 
 jobs:
   build:
-    name: Build Battery Monitor APK
+    name: Build Android 16 Tablet APK
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -48,13 +48,13 @@ jobs:
       - name: Upload debug APK
         uses: actions/upload-artifact@v4
         with:
-          name: battery-monitor-debug
+          name: battery-monitor-tab-android16-debug
           path: battery-monitor/app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
 
       - name: Upload release APK
         uses: actions/upload-artifact@v4
         with:
-          name: battery-monitor-release
+          name: battery-monitor-tab-android16-release
           path: battery-monitor/app/build/outputs/apk/release/*.apk
           if-no-files-found: error
