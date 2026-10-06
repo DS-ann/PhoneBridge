@@ -14,26 +14,32 @@ final class BatteryWearStore {
     private static final String KEY_WEAR="wear_percent",KEY_HEALTH="health_percent",KEY_FULL="full_uah",KEY_DESIGN="design_uah",KEY_UPDATED="updated";
     private static final String KEY_EST_FULL="estimated_full_uah",KEY_EST_HEALTH="estimated_health_percent",KEY_EST_WEAR="estimated_wear_percent",KEY_QUALIFIED="qualified_sessions";
     private static final String KEY_FULL_SOURCE="full_source",KEY_DESIGN_SOURCE="design_source",KEY_CHARGE_COUNTER="charge_counter_uah";
+    private static final String KEY_FULL_ENERGY="full_energy_uwh",KEY_DESIGN_ENERGY="design_energy_uwh",KEY_FULL_ENERGY_SOURCE="full_energy_source",KEY_DESIGN_ENERGY_SOURCE="design_energy_source";
     private static final String[] FULL_PATHS={"/sys/class/power_supply/battery/charge_full","/sys/class/power_supply/bms/charge_full"};
     private static final String[] DESIGN_PATHS={"/sys/class/power_supply/battery/charge_full_design","/sys/class/power_supply/bms/charge_full_design"};
+    private static final String[] FULL_ENERGY_PATHS={"/sys/class/power_supply/battery/energy_full","/sys/class/power_supply/bms/energy_full"};
+    private static final String[] DESIGN_ENERGY_PATHS={"/sys/class/power_supply/battery/energy_full_design","/sys/class/power_supply/bms/energy_full_design"};
     private static final int HEALTH_MIN_CHARGE_PERCENT=40;
     private static final double ACCUBATTERY_VMAX=4.35,ACCUBATTERY_LINEAR_CUTOFF=3.95;
     private static final double MIN_ESTIMATED_CAPACITY_MAH=1000,MAX_ESTIMATED_CAPACITY_MAH=30000;
     private BatteryWearStore(){}
 
     static synchronized void update(Context c){
-        long full=normalizeCapacity(firstPositive(FULL_PATHS)),design=normalizeCapacity(firstPositive(DESIGN_PATHS));
+        long rawFull=firstPositive(FULL_PATHS),rawDesign=firstPositive(DESIGN_PATHS);
+        long full=normalizeCapacity(rawFull),design=normalizeCapacity(rawDesign);
+        long fullEnergy=firstPositive(FULL_ENERGY_PATHS),designEnergy=firstPositive(DESIGN_ENERGY_PATHS);
         long chargeCounter=readBatteryManagerChargeCounter(c);
-        if(chargeCounter>0 && batteryLevel(c)>=100 && full<=0)full=chargeCounter;
         android.content.SharedPreferences.Editor e=c.getSharedPreferences(PREFS,Context.MODE_PRIVATE).edit();
-        if(full>0)e.putLong(KEY_FULL,full).putString(KEY_FULL_SOURCE,firstPositive(FULL_PATHS)>0?fullSource():"BatteryManager charge counter at 100%");
-        if(chargeCounter>0)e.putLong(KEY_CHARGE_COUNTER,chargeCounter);
+        if(full>0)e.putLong(KEY_FULL,full).putString(KEY_FULL_SOURCE,fullSource());
         if(design>0)e.putLong(KEY_DESIGN,design).putString(KEY_DESIGN_SOURCE,designSource());
+        if(fullEnergy>0)e.putLong(KEY_FULL_ENERGY,fullEnergy).putString(KEY_FULL_ENERGY_SOURCE,fullEnergySource());
+        if(designEnergy>0)e.putLong(KEY_DESIGN_ENERGY,designEnergy).putString(KEY_DESIGN_ENERGY_SOURCE,designEnergySource());
+        if(chargeCounter>0)e.putLong(KEY_CHARGE_COUNTER,chargeCounter);
         if(full>0&&design>0){
             double health=clamp(full*100.0/design,0,110),wear=Math.max(0,100-health);
             e.putFloat(KEY_WEAR,(float)wear).putFloat(KEY_HEALTH,(float)health);
         }
-        if(full>0||design>0)e.putLong(KEY_UPDATED,System.currentTimeMillis());
+        if(full>0||design>0||fullEnergy>0||designEnergy>0)e.putLong(KEY_UPDATED,System.currentTimeMillis());
         e.apply();
     }
 
@@ -96,8 +102,10 @@ final class BatteryWearStore {
     static Snapshot get(Context c){
         android.content.SharedPreferences p=c.getSharedPreferences(PREFS,Context.MODE_PRIVATE);
         return new Snapshot(p.getFloat(KEY_WEAR,-1),p.getFloat(KEY_HEALTH,-1),p.getLong(KEY_FULL,0),p.getLong(KEY_DESIGN,0),
+                p.getLong(KEY_FULL_ENERGY,0),p.getLong(KEY_DESIGN_ENERGY,0),
                 p.getFloat(KEY_EST_WEAR,-1),p.getFloat(KEY_EST_HEALTH,-1),p.getLong(KEY_EST_FULL,0),p.getInt(KEY_QUALIFIED,0),p.getLong(KEY_UPDATED,0),
-                p.getString(KEY_FULL_SOURCE,"Unavailable"),p.getString(KEY_DESIGN_SOURCE,"Unavailable"));
+                p.getString(KEY_FULL_SOURCE,"Unavailable"),p.getString(KEY_DESIGN_SOURCE,"Unavailable"),
+                p.getString(KEY_FULL_ENERGY_SOURCE,"Unavailable"),p.getString(KEY_DESIGN_ENERGY_SOURCE,"Unavailable"));
     }
     static boolean isCharging(Context c){Intent i=c.registerReceiver(null,new android.content.IntentFilter(Intent.ACTION_BATTERY_CHANGED));return i!=null&&i.getIntExtra(BatteryManager.EXTRA_PLUGGED,0)!=0;}
     static long getFullUah(){return normalizeCapacity(firstPositive(FULL_PATHS));}
@@ -124,21 +132,24 @@ final class BatteryWearStore {
     }
     static String fullSource(){for(String p:FULL_PATHS)if(readRaw(p)>0)return p;return "Unavailable";}
     static String designSource(){for(String p:DESIGN_PATHS)if(readRaw(p)>0)return p;return "Unavailable";}
+    static String fullEnergySource(){for(String p:FULL_ENERGY_PATHS)if(readRaw(p)>0)return p;return "Unavailable";}
+    static String designEnergySource(){for(String p:DESIGN_ENERGY_PATHS)if(readRaw(p)>0)return p;return "Unavailable";}
     private static long firstPositive(String[] paths){for(String p:paths){long v=readRaw(p);if(v>0)return v;}return 0;}
     private static long readRaw(String path){File f=new File(path);if(!f.canRead())return 0;try(BufferedReader br=new BufferedReader(new FileReader(f))){String s=br.readLine();return s==null?0:Long.parseLong(s.trim());}catch(Exception e){return 0;}}
     private static long normalizeCapacity(long v){return v>0&&v<100000?v*1000:v;}
     private static double clamp(double v,double lo,double hi){return Math.max(lo,Math.min(hi,v));}
 
     static final class Snapshot{
-        final double wear,health,estimatedWear,estimatedHealth;final long fullUah,designUah,estimatedFullUah,updated;final int qualifiedSessions;
-        final String fullSource,designSource;
-        Snapshot(double w,double h,long f,long d,double ew,double eh,long ef,int q,long u,String fs,String ds){wear=w;health=h;fullUah=f;designUah=d;estimatedWear=ew;estimatedHealth=eh;estimatedFullUah=ef;qualifiedSessions=q;updated=u;fullSource=fs;designSource=ds;}
+        final double wear,health,estimatedWear,estimatedHealth;final long fullUah,designUah,fullEnergyUwh,designEnergyUwh,estimatedFullUah,updated;final int qualifiedSessions;
+        final String fullSource,designSource,fullEnergySource,designEnergySource;
+        Snapshot(double w,double h,long f,long d,long fe,long de,double ew,double eh,long ef,int q,long u,String fs,String ds,String fes,String des){wear=w;health=h;fullUah=f;designUah=d;fullEnergyUwh=fe;designEnergyUwh=de;estimatedWear=ew;estimatedHealth=eh;estimatedFullUah=ef;qualifiedSessions=q;updated=u;fullSource=fs;designSource=ds;fullEnergySource=fes;designEnergySource=des;}
         boolean measuredCapacityAvailable(){return fullUah>0&&designUah>0;}
+        boolean measuredEnergyAvailable(){return fullEnergyUwh>0&&designEnergyUwh>0;}
         boolean estimatedCapacityAvailable(){return estimatedFullUah>0;}
-        boolean available(){return measuredCapacityAvailable()||estimatedCapacityAvailable();}
+        boolean available(){return measuredCapacityAvailable()||measuredEnergyAvailable()||estimatedCapacityAvailable();}
         double designCapacityMah(){return designUah>0?designUah/1000.0:0;}
         double fullCapacityMah(){return fullUah>0?fullUah/1000.0:0;}
         double estimatedCapacityMah(){return estimatedFullUah>0?estimatedFullUah/1000.0:0;}
-        String capacityText(){if(measuredCapacityAvailable())return String.format(java.util.Locale.US,"%.0f / %.0f mAh",fullCapacityMah(),designCapacityMah());if(estimatedCapacityAvailable())return String.format(java.util.Locale.US,"~%.0f mAh estimated",estimatedCapacityMah());return "Unavailable";}
+        String capacityText(){if(measuredCapacityAvailable())return String.format(java.util.Locale.US,"%.0f / %.0f mAh",fullCapacityMah(),designCapacityMah());if(measuredEnergyAvailable())return String.format(java.util.Locale.US,"%.0f / %.0f mWh measured",fullEnergyUwh/1000.0,designEnergyUwh/1000.0);if(estimatedCapacityAvailable())return String.format(java.util.Locale.US,"~%.0f mAh estimated",estimatedCapacityMah());return "Unavailable";}
     }
 }
