@@ -1,9 +1,7 @@
 package com.dsann.batterymonitor;
 
-import android.Manifest;
 import android.app.Activity;
 import android.content.Intent;
-import android.content.pm.PackageManager;
 import android.graphics.Color;
 import android.graphics.Typeface;
 import android.graphics.drawable.GradientDrawable;
@@ -195,8 +193,6 @@ public class MainActivity extends Activity {
             getSharedPreferences(PREFS,0).edit().putBoolean("notification_enabled",on).apply();
             samplingBar.setEnabled(on);
             if(on){
-                if(Build.VERSION.SDK_INT>=33&&checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS)!=PackageManager.PERMISSION_GRANTED)
-                    requestPermissions(new String[]{Manifest.permission.POST_NOTIFICATIONS},10);
                 startNotificationService();
             }else stopService(new Intent(this,BatteryNotificationService.class));
         });
@@ -242,9 +238,14 @@ public class MainActivity extends Activity {
     }
     
     private void updateValues(){
-        BatteryReader.Reading r=BatteryReader.read(this);
-        voltage.setText(r.voltageText());
-        current.setText(r.currentText());
+        try {
+            BatteryReader.Reading r=BatteryReader.read(this);
+            voltage.setText(r.voltageText());
+            current.setText(r.currentText());
+        } catch (Throwable ignored) {
+            voltage.setText("N/A");
+            current.setText("N/A");
+        }
     }
     
     private void refreshHistory(){
