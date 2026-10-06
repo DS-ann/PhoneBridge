@@ -38,6 +38,9 @@ final class BatteryWearStore {
         if(full>0&&design>0){
             double health=clamp(full*100.0/design,0,110),wear=Math.max(0,100-health);
             e.putFloat(KEY_WEAR,(float)wear).putFloat(KEY_HEALTH,(float)health);
+        }else if(fullEnergy>0&&designEnergy>0){
+            double health=clamp(fullEnergy*100.0/designEnergy,0,110),wear=Math.max(0,100-health);
+            e.putFloat(KEY_WEAR,(float)wear).putFloat(KEY_HEALTH,(float)health);
         }
         if(full>0||design>0||fullEnergy>0||designEnergy>0)e.putLong(KEY_UPDATED,System.currentTimeMillis());
         e.apply();
