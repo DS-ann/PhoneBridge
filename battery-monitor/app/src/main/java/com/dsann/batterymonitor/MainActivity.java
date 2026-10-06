@@ -157,13 +157,36 @@ public class MainActivity extends Activity {
             GradientDrawable bg=new GradientDrawable();bg.setColor(0x00000000);bg.setStroke(dp(1),0xFF888888);bg.setCornerRadius(dp(8));card.setBackground(bg);
             TextView title=text((rec.charging?"CHARGED":"USED")+"  "+String.format(java.util.Locale.US,"%.1f mAh",rec.mah),18);
             TextView details=text(rec.date()+"  •  "+rec.duration(),14);
-            card.addView(title,full());card.addView(details,top(4));
-            String currentRange=Double.isNaN(rec.minCurrent)?"Current: --":"Current: "+String.format(java.util.Locale.US,"min %+.1f mA  •  max %+.1f mA",rec.minCurrent,rec.maxCurrent);
+            String currentRange=Double.isNaN(rec.minCurrent)?"Current: --":"Current: min "+formatSigned(rec.minCurrent)+" mA  •  max "+formatSigned(rec.maxCurrent)+" mA";
             String percentRange=(rec.startPercent>=0&&rec.endPercent>=0)?"Battery: "+rec.startPercent+"% → "+rec.endPercent+"%  ("+String.format(java.util.Locale.US,"%+d%%",rec.endPercent-rec.startPercent)+")":"Battery: --";
-            card.addView(text(currentRange,14),top(4));
-            card.addView(text(percentRange,14),top(2));
+            card.addView(title,full());card.addView(details,top(4));card.addView(text("Overall",14),top(6));
+            card.addView(text(currentRange,14),top(2));card.addView(text(percentRange,14),top(2));
+
+            LinearLayout expanded=new LinearLayout(this);expanded.setOrientation(LinearLayout.VERTICAL);expanded.setVisibility(View.GONE);
+            addScreenDetails(expanded,"Screen ON",rec.onMs,rec.onMah,rec.onMin,rec.onMax,rec.onStartPercent,rec.onEndPercent);
+            addScreenDetails(expanded,"Screen OFF",rec.offMs,rec.offMah,rec.offMin,rec.offMax,rec.offStartPercent,rec.offEndPercent);
+            card.addView(expanded,top(8));
+            card.setOnClickListener(v->{expanded.setVisibility(expanded.getVisibility()==View.VISIBLE?View.GONE:View.VISIBLE);});
             LinearLayout.LayoutParams cp=full();cp.topMargin=dp(8);historyList.addView(card,cp);
         }
+    }
+
+    private void addScreenDetails(LinearLayout parent,String label,long ms,double mah,double min,double max,int startPercent,int endPercent){
+        parent.addView(text(label,15),top(4));
+        if(ms<=0&&mah<=0){
+            parent.addView(text("No samples",13),top(2));return;
+        }
+        long minutes=Math.max(1,ms/60000L);
+        String duration=minutes>=60?(minutes/60)+"h "+(minutes%60)+"m":minutes+"m";
+        parent.addView(text("Time: "+duration+"  •  mAh: "+String.format(java.util.Locale.US,"%.1f",mah),13),top(2));
+        if(Double.isNaN(min)||Double.isNaN(max)) parent.addView(text("Current: --",13),top(2));
+        else parent.addView(text("Current: min "+formatSigned(min)+" mA  •  max "+formatSigned(max)+" mA",13),top(2));
+        if(startPercent>=0&&endPercent>=0)
+            parent.addView(text("Battery: "+startPercent+"% → "+endPercent+"%  ("+String.format(java.util.Locale.US,"%+d%%",endPercent-startPercent)+")",13),top(2));
+    }
+
+    private String formatSigned(double value){
+        return String.format(java.util.Locale.US,"%+.1f",value);
     }
     private void startNotificationService(){Intent i=new Intent(this,BatteryNotificationService.class);if(Build.VERSION.SDK_INT>=26)startForegroundService(i);else startService(i);}
     private TextView text(String s,int size){TextView v=new TextView(this);v.setText(s);v.setTextSize(size);return v;}
