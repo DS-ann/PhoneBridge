@@ -350,7 +350,7 @@ public class MainActivity extends Activity {
             title.setTextColor(accent);
             title.setTypeface(Typeface.DEFAULT,Typeface.BOLD);
             card.addView(title,full());
-            TextView details=text(rec.date()+"  •  "+rec.duration(),13);
+            TextView details=text(rec.date()+"  •  "+rec.duration()+"  •  Screen ON: "+rec.screenOnDuration(),13);
             details.setTextColor(0xFF9AA0AA);
             card.addView(details,top(3));
             String currentRange=Double.isNaN(rec.minCurrent)?"Current: --":"Current: min "+formatSigned(rec.minCurrent)+" mA  •  max "+formatSigned(rec.maxCurrent)+" mA";
