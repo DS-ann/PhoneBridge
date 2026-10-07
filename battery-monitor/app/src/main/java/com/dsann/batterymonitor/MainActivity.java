@@ -194,7 +194,7 @@ public class MainActivity extends Activity {
             samplingBar.setEnabled(on);
             if(on){
                 startNotificationService();
-            }else stopService(new Intent(this,BatteryNotificationService.class));
+            }else { SessionStore.finish(this); stopService(new Intent(this,BatteryNotificationService.class)); }
         });
         return r;
     }
