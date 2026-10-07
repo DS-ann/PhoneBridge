@@ -18,7 +18,7 @@ final class SessionStore {
             KEY_ON_END_PERCENT="on_end_percent", KEY_OFF_MS="off_ms", KEY_OFF_MAH="off_mah",
             KEY_OFF_MIN="off_min", KEY_OFF_MAX="off_max", KEY_OFF_START_PERCENT="off_start_percent",
             KEY_OFF_END_PERCENT="off_end_percent";
-    private static final long MAX_GAP=10*60*1000L;
+    private static final long MAX_GAP=2*60*60*1000L;
     private SessionStore(){}
 
     static synchronized void sample(Context c, BatteryReader.Reading r){
