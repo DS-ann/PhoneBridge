@@ -90,6 +90,7 @@ public class MainActivity extends Activity {
         healthTab.setOnClickListener(v->{monitorContainer.setVisibility(View.GONE);historyView.setVisibility(View.GONE);healthContainer.setVisibility(View.VISIBLE);selectTab(2);refreshHealth();handler.removeCallbacks(historyUpdater);});
         
         setContentView(root);
+        if (notificationSwitch.isChecked()) startNotificationService();
         root.setFocusableInTouchMode(true);
         root.requestFocus();
     }
