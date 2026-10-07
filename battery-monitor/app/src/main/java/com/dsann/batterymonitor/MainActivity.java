@@ -211,7 +211,7 @@ public class MainActivity extends Activity {
         r.setOrientation(LinearLayout.VERTICAL);
         r.setPadding(dp(16),dp(4),dp(16),dp(20));
         TextView title=text("Battery health",22); title.setTypeface(Typeface.DEFAULT,Typeface.BOLD); r.addView(title,full());
-        TextView sub=text("HyperOS / MIUI fuel-gauge data and Android battery properties.",13); sub.setTextColor(0xFF707070); r.addView(sub,top(2));
+        TextView sub=text("Standard Android battery properties and Linux fuel-gauge data.",13); sub.setTextColor(0xFF707070); r.addView(sub,top(2));
         LinearLayout overview=card(0xFFF4F0FB);
         healthLevel=text("--%",30); healthLevel.setTypeface(Typeface.DEFAULT,Typeface.BOLD); overview.addView(healthLevel,full());
         healthStatus=text("Status: --",14); healthStatus.setTextColor(0xFF666666); overview.addView(healthStatus,top(4));
@@ -234,7 +234,7 @@ public class MainActivity extends Activity {
         LinearLayout sourceCard=infoCard("LIVE SOURCE","--"); healthSource=(TextView)sourceCard.getTag();
         row2.addView(currentCard,new LinearLayout.LayoutParams(0,-2,1)); x=new LinearLayout.LayoutParams(0,-2,1); x.leftMargin=dp(8); row2.addView(sourceCard,x);
         r.addView(row2,top(8));
-        TextView note=text("HyperOS may restrict these kernel nodes. BatteryPulse tries normal sysfs first and root access when available.",12); note.setTextColor(0xFF777777); r.addView(note,top(12));
+        TextView note=text("BatteryPulse uses standard Android battery APIs and Linux power_supply data, with root access used to fill protected kernel values when available.",12); note.setTextColor(0xFF777777); r.addView(note,top(12));
         return r;
     }
     private void addHealthField(LinearLayout parent,String label,String key){
