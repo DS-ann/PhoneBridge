@@ -174,7 +174,7 @@ final class BatteryWearStore {
         return k.contains("charge_full")||k.contains("full_charge")||k.contains("fullcapacity")||k.contains("full_capacity")||k.endsWith("fcc")||k.equals("fcc")||k.contains("qmax");
     }
     private static SourceValue discoverFromProperties(boolean design){
-        try{Process p=Runtime.getRuntime().exec(new String[]{"/system/bin/getprop"});BufferedReader br=new BufferedReader(new InputStreamReader(p.getInputStream()));String line;Pattern pat=Pattern.compile("\\\\[([^]]+)\\\\]\\\\s*:\\\\s*\\\\[([^]]*)\\\\]");
+        try{Process p=Runtime.getRuntime().exec(new String[]{"/system/bin/getprop"});BufferedReader br=new BufferedReader(new InputStreamReader(p.getInputStream()));String line;Pattern pat=Pattern.compile("\\[([^]]+)\\]\\s*:\\s*\\[([^]]*)\\]");
             while((line=br.readLine())!=null){Matcher m=pat.matcher(line);if(!m.find())continue;String key=m.group(1).toLowerCase(Locale.US),val=m.group(2);if(!key.contains("batt")&&!key.contains("power")&&!key.contains("fuel")&&!key.contains("capacity")&&!key.contains("qmax")&&!key.contains("fcc"))continue;if(!isCapacityKey(key,design))continue;long uah=normalizeCapacity(numberFromObject(val));if(isPlausibleCapacity(uah))return new SourceValue(uah,"system property: "+m.group(1));}
         }catch(Throwable ignored){} return new SourceValue(0,"Unavailable");
     }
