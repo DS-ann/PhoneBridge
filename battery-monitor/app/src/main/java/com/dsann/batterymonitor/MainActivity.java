@@ -32,7 +32,9 @@ public class MainActivity extends Activity {
     private TextView samplingLabel;
     private LinearLayout monitorView,historyView,historyList;
     private View monitorContainer;
-    private TextView monitorTab,historyTab,healthTab;\n    private LinearLayout healthView;\n    private TextView healthLevel,healthStatus,healthTemp,healthVoltage,healthCurrent,healthSource;
+    private TextView monitorTab,historyTab,healthTab;
+    private LinearLayout healthView;
+    private TextView healthLevel,healthStatus,healthTemp,healthVoltage,healthCurrent,healthSource;
     private final Runnable updater=new Runnable(){public void run(){updateValues();handler.postDelayed(this,1000);}};
     
     @Override protected void onCreate(Bundle state){
@@ -67,7 +69,8 @@ public class MainActivity extends Activity {
         monitorContainer=new ScrollView(this);
         ((ScrollView)monitorContainer).setFillViewport(true);
         ((ScrollView)monitorContainer).addView(monitorView);
-        historyView=buildHistory();\n        healthView=buildHealth();
+        historyView=buildHistory();
+        healthView=buildHealth();
         
         root.addView(monitorContainer,new LinearLayout.LayoutParams(-1,0,1));
         root.addView(historyView,new LinearLayout.LayoutParams(-1,0,1));
@@ -272,7 +275,8 @@ public class MainActivity extends Activity {
         handler.removeCallbacks(updater);
         handler.post(updater);
         handler.removeCallbacks(historyUpdater);
-        if(historyView!=null&&historyView.getVisibility()==View.VISIBLE){refreshHistory();handler.postDelayed(historyUpdater,10000);}\n        if(healthView!=null&&healthView.getVisibility()==View.VISIBLE)refreshHealth();
+        if(historyView!=null&&historyView.getVisibility()==View.VISIBLE){refreshHistory();handler.postDelayed(historyUpdater,10000);}
+        if(healthView!=null&&healthView.getVisibility()==View.VISIBLE)refreshHealth();
     }
     
     @Override protected void onPause(){
