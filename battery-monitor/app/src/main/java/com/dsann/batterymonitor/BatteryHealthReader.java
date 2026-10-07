@@ -31,8 +31,13 @@ final class BatteryHealthReader {
             } catch (Throwable ignored) {}
         }
 
+        // Normal Android/Linux power_supply access first.
         Map<String,String> files = readSysfs();
-        if (files.isEmpty()) files = readAsRoot();
+
+        // This phone is rooted. Use root only to fill values that normal
+        // app access could not read; do not replace already-readable data.
+        Map<String,String> rootFiles = readAsRoot();
+        mergeMissing(files, rootFiles);
 
         for (Map.Entry<String,String> e : files.entrySet()) {
             String key = e.getKey();
@@ -50,6 +55,14 @@ final class BatteryHealthReader {
             d.ratio = d.fullChargeUaH * 100.0 / d.designChargeUaH;
         }
         return d;
+    }
+
+    private static void mergeMissing(Map<String,String> target, Map<String,String> fallback) {
+        for (Map.Entry<String,String> e : fallback.entrySet()) {
+            if (!target.containsKey(e.getKey())) {
+                target.put(e.getKey(), e.getValue());
+            }
+        }
     }
 
     private static long parse(String s) {
@@ -135,6 +148,7 @@ final class BatteryHealthReader {
         String charge(long value) {
             return value > 0 ? String.format(Locale.US, "%.0f mAh", value / 1000.0) : "Unavailable";
         }
+
         String energy(long value) {
             return value > 0 ? String.format(Locale.US, "%.0f mWh", value / 1000.0) : "Unavailable";
         }
