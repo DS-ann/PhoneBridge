@@ -34,7 +34,7 @@ public class MainActivity extends Activity {
     private View monitorContainer;
     private TextView monitorTab,historyTab,healthTab;
     private LinearLayout healthView;
-    private TextView healthLevel,healthStatus,healthTemp,healthVoltage,healthCurrent,healthSource;
+    private TextView healthLevel,healthStatus,healthTemp,healthVoltage,healthCurrent,healthSource,healthFullCharge,healthRemaining,healthDesign,healthRatio,healthRaw,healthFile,healthFullEnergy,healthDesignEnergy;
     private final Runnable updater=new Runnable(){public void run(){updateValues();handler.postDelayed(this,1000);}};
     
     @Override protected void onCreate(Bundle state){
@@ -61,8 +61,10 @@ public class MainActivity extends Activity {
         tabs.setPadding(dp(16),dp(4),dp(16),dp(10));
         monitorTab=tab("Monitor");
         historyTab=tab("History");
+        healthTab=tab("Health");
         tabs.addView(monitorTab,new LinearLayout.LayoutParams(0,dp(42),1));
         tabs.addView(historyTab,new LinearLayout.LayoutParams(0,dp(42),1));
+        tabs.addView(healthTab,new LinearLayout.LayoutParams(0,dp(42),1));
         root.addView(tabs);
         
         monitorView=buildMonitor();
@@ -74,11 +76,13 @@ public class MainActivity extends Activity {
         
         root.addView(monitorContainer,new LinearLayout.LayoutParams(-1,0,1));
         root.addView(historyView,new LinearLayout.LayoutParams(-1,0,1));
+        root.addView(healthView,new LinearLayout.LayoutParams(-1,0,1));
         historyView.setVisibility(View.GONE);
-        selectTab(true);
-        
-        monitorTab.setOnClickListener(v->{monitorContainer.setVisibility(View.VISIBLE);historyView.setVisibility(View.GONE);selectTab(true);});
-        historyTab.setOnClickListener(v->{monitorContainer.setVisibility(View.GONE);historyView.setVisibility(View.VISIBLE);selectTab(false);refreshHistory();handler.removeCallbacks(historyUpdater);handler.postDelayed(historyUpdater,10000);});
+        healthView.setVisibility(View.GONE);
+        selectTab(0);
+        monitorTab.setOnClickListener(v->showTab(0));
+        historyTab.setOnClickListener(v->showTab(1));
+        healthTab.setOnClickListener(v->showTab(2));
         
         setContentView(root);
         root.setFocusableInTouchMode(true);
@@ -207,23 +211,45 @@ public class MainActivity extends Activity {
         r.setOrientation(LinearLayout.VERTICAL);
         r.setPadding(dp(16),dp(4),dp(16),dp(20));
         TextView title=text("Battery health",22); title.setTypeface(Typeface.DEFAULT,Typeface.BOLD); r.addView(title,full());
-        TextView sub=text("Live battery information reported by Android.",13); sub.setTextColor(0xFF707070); r.addView(sub,top(2));
+        TextView sub=text("HyperOS / MIUI fuel-gauge data and Android battery properties.",13); sub.setTextColor(0xFF707070); r.addView(sub,top(2));
         LinearLayout overview=card(0xFFF4F0FB);
         healthLevel=text("--%",30); healthLevel.setTypeface(Typeface.DEFAULT,Typeface.BOLD); overview.addView(healthLevel,full());
         healthStatus=text("Status: --",14); healthStatus.setTextColor(0xFF666666); overview.addView(healthStatus,top(4));
         r.addView(overview,top(12));
+        addHealthField(r,"Full charge capacity","healthFullCharge");
+        addHealthField(r,"Remaining charge counter","healthRemaining");
+        addHealthField(r,"Design capacity","healthDesign");
+        addHealthField(r,"Capacity ratio","healthRatio");
+        addHealthField(r,"Raw health source","healthRaw");
+        addHealthField(r,"Source file","healthFile");
+        addHealthField(r,"Full energy","healthFullEnergy");
+        addHealthField(r,"Design energy","healthDesignEnergy");
         LinearLayout row1=new LinearLayout(this);
         LinearLayout voltageCard=infoCard("VOLTAGE","--"); healthVoltage=(TextView)voltageCard.getTag();
         LinearLayout tempCard=infoCard("TEMPERATURE","--"); healthTemp=(TextView)tempCard.getTag();
-        row1.addView(voltageCard,new LinearLayout.LayoutParams(0,-2,1)); LinearLayout x=new LinearLayout.LayoutParams(0,-2,1); x.leftMargin=dp(8); row1.addView(tempCard,x);
+        row1.addView(voltageCard,new LinearLayout.LayoutParams(0,-2,1)); LinearLayout.LayoutParams x=new LinearLayout.LayoutParams(0,-2,1); x.leftMargin=dp(8); row1.addView(tempCard,x);
         r.addView(row1,top(12));
         LinearLayout row2=new LinearLayout(this);
         LinearLayout currentCard=infoCard("CURRENT","--"); healthCurrent=(TextView)currentCard.getTag();
-        LinearLayout sourceCard=infoCard("DATA SOURCE","Android"); healthSource=(TextView)sourceCard.getTag();
+        LinearLayout sourceCard=infoCard("LIVE SOURCE","--"); healthSource=(TextView)sourceCard.getTag();
         row2.addView(currentCard,new LinearLayout.LayoutParams(0,-2,1)); x=new LinearLayout.LayoutParams(0,-2,1); x.leftMargin=dp(8); row2.addView(sourceCard,x);
         r.addView(row2,top(8));
-        TextView note=text("Capacity health is shown only when a reliable full-charge capacity source is available.",12); note.setTextColor(0xFF777777); r.addView(note,top(12));
+        TextView note=text("HyperOS may restrict these kernel nodes. BatteryPulse tries normal sysfs first and root access when available.",12); note.setTextColor(0xFF777777); r.addView(note,top(12));
         return r;
+    }
+    private void addHealthField(LinearLayout parent,String label,String key){
+        LinearLayout c=card(Color.WHITE);
+        TextView l=text(label,11); l.setTypeface(Typeface.DEFAULT,Typeface.BOLD); l.setTextColor(0xFF777777); c.addView(l,full());
+        TextView v=text("Unavailable",16); v.setTypeface(Typeface.DEFAULT,Typeface.BOLD); c.addView(v,top(4));
+        if("healthFullCharge".equals(key)) healthFullCharge=v;
+        else if("healthRemaining".equals(key)) healthRemaining=v;
+        else if("healthDesign".equals(key)) healthDesign=v;
+        else if("healthRatio".equals(key)) healthRatio=v;
+        else if("healthRaw".equals(key)) healthRaw=v;
+        else if("healthFile".equals(key)) healthFile=v;
+        else if("healthFullEnergy".equals(key)) healthFullEnergy=v;
+        else if("healthDesignEnergy".equals(key)) healthDesignEnergy=v;
+        parent.addView(c,top(7));
     }
     private LinearLayout infoCard(String label,String value){
         LinearLayout c=card(Color.WHITE); TextView l=text(label,10); l.setTypeface(Typeface.DEFAULT,Typeface.BOLD); l.setTextColor(0xFF777777); c.addView(l,full());
@@ -231,7 +257,8 @@ public class MainActivity extends Activity {
     }
     private void showTab(int index){
         monitorContainer.setVisibility(index==0?View.VISIBLE:View.GONE); historyView.setVisibility(index==1?View.VISIBLE:View.GONE); healthView.setVisibility(index==2?View.VISIBLE:View.GONE);
-        selectTab(index); if(index==1){refreshHistory();handler.removeCallbacks(historyUpdater);handler.postDelayed(historyUpdater,10000);} else handler.removeCallbacks(historyUpdater); if(index==2)refreshHealth();
+        selectTab(index); handler.removeCallbacks(historyUpdater);
+        if(index==1){refreshHistory();handler.postDelayed(historyUpdater,10000);} else if(index==2) refreshHealth();
     }
     private void refreshHealth(){
         try{
@@ -244,7 +271,15 @@ public class MainActivity extends Activity {
                 int temp=b.getIntExtra(android.os.BatteryManager.EXTRA_TEMPERATURE,0); healthTemp.setText(temp!=0?String.format(java.util.Locale.US,"%.1f °C",temp/10.0):"N/A");
             }
             BatteryReader.Reading rr=BatteryReader.read(this); healthCurrent.setText(rr.currentText()); healthSource.setText(rr.currentUa!=Long.MIN_VALUE?"Fuel gauge":"Android");
-        }catch(Throwable ignored){healthLevel.setText("--");healthStatus.setText("Status: unavailable");healthVoltage.setText("N/A");healthTemp.setText("N/A");healthCurrent.setText("N/A");healthSource.setText("Unavailable");}
+            BatteryHealthReader.Data d=BatteryHealthReader.read(this);
+            healthFullCharge.setText(d.charge(d.fullChargeUaH)); healthRemaining.setText(d.charge(d.remainingChargeUaH)); healthDesign.setText(d.charge(d.designChargeUaH));
+            healthRatio.setText(Double.isNaN(d.ratio)?"Unavailable":String.format(java.util.Locale.US,"%.1f %%",d.ratio));
+            healthRaw.setText(d.rawHealth==null?"Unavailable":d.rawHealth); healthFile.setText(d.sourceFile);
+            healthFullEnergy.setText(d.energy(d.fullEnergyUWh)); healthDesignEnergy.setText(d.energy(d.designEnergyUWh));
+        }catch(Throwable ignored){
+            healthLevel.setText("--"); healthStatus.setText("Status: unavailable"); healthVoltage.setText("N/A"); healthTemp.setText("N/A"); healthCurrent.setText("N/A"); healthSource.setText("Unavailable");
+            healthFullCharge.setText("Unavailable"); healthRemaining.setText("Unavailable"); healthDesign.setText("Unavailable"); healthRatio.setText("Unavailable"); healthRaw.setText("Unavailable"); healthFile.setText("Unavailable"); healthFullEnergy.setText("Unavailable"); healthDesignEnergy.setText("Unavailable");
+        }
     }
     private LinearLayout buildHistory(){
         LinearLayout r=new LinearLayout(this);
@@ -413,11 +448,9 @@ public class MainActivity extends Activity {
         return v;
     }
     
-    private void selectTab(boolean monitor){
-        monitorTab.setTextColor(monitor?0xFF111111:0xFF777777);
-        historyTab.setTextColor(monitor?0xFF777777:0xFF111111);
-        monitorTab.setBackground(round(monitor?0xFFE7E7EA:0x00000000,12));
-        historyTab.setBackground(round(monitor?0x00000000:0xFFE7E7EA,12));
+    private void selectTab(int index){
+        TextView[] ts={monitorTab,historyTab,healthTab};
+        for(int i=0;i<ts.length;i++){boolean selected=i==index; ts[i].setTextColor(selected?0xFF111111:0xFF777777); ts[i].setBackground(round(selected?0xFFE7E7EA:0x00000000,12));}
     }
     
     private GradientDrawable round(int color,int radius){
