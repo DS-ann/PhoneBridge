@@ -445,8 +445,8 @@ public class MainActivity extends Activity {
         if(startPercent>=0&&endPercent>=0)parent.addView(text("Battery: "+startPercent+"% → "+endPercent+"%  ("+String.format(java.util.Locale.US,"%+d%%",endPercent-startPercent)+")",12),top(2));
     }
     
-    private LinearLayout metricCard(String label,String value,int color){
-        LinearLayout c=card(color);
+    private LinearLayout metricCard(String label,String value,int color,int strokeColor){
+        LinearLayout c=card(color,strokeColor);
         TextView l=text(label,11);
         l.setTypeface(Typeface.DEFAULT,Typeface.BOLD);
         l.setTextColor(0xFF777777);
@@ -471,14 +471,16 @@ public class MainActivity extends Activity {
     
     private LinearLayout card(){return card(Color.WHITE);}
 
-    private LinearLayout card(int color){
+    private LinearLayout card(int color){ return card(color,0xFF303744); }
+
+    private LinearLayout card(int color,int strokeColor){
         LinearLayout c=new LinearLayout(this);
         c.setOrientation(LinearLayout.VERTICAL);
         c.setPadding(dp(14),dp(13),dp(14),dp(13));
         GradientDrawable bg=new GradientDrawable();
         bg.setColor(color);
         bg.setCornerRadius(dp(14));
-        bg.setStroke(dp(1),0xFFDDE2E8);
+        bg.setStroke(dp(1),strokeColor);
         c.setBackground(bg);
         if(Build.VERSION.SDK_INT>=21)c.setElevation(dp(1));
         return c;
