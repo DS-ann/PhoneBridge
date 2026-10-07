@@ -143,6 +143,18 @@ final class SessionStore {
         return readDouble(p,KEY_MAH,0);
     }
 
+    static synchronized long getActiveScreenOnMs(Context c){
+        return c.getSharedPreferences(PREFS,Context.MODE_PRIVATE).getLong(KEY_ON_MS,0);
+    }
+
+    static String formatDuration(long ms){
+        if(ms<=0)return "0m";
+        long minutes=ms/60000L;
+        if(minutes<1)return "<1m";
+        long hours=minutes/60L;
+        return hours>0?(hours+"h "+(minutes%60)+"m"):(minutes+"m");
+    }
+
     static synchronized ArrayList<Record> getRecords(Context c){
         android.content.SharedPreferences p=c.getSharedPreferences(PREFS,Context.MODE_PRIVATE);
         String raw=p.getString(KEY_HISTORY,"");
@@ -228,6 +240,7 @@ final class SessionStore {
             offMs=fms;offMah=fma;offMin=fmin;offMax=fmax;offStartPercent=fsp;offEndPercent=fep;
         }
         String date(){return new SimpleDateFormat("dd MMM yyyy, HH:mm",Locale.US).format(new Date(start));}
-        String duration(){long m=Math.max(1,(end-start)/60000);return m>=60?(m/60)+"h "+(m%60)+"m":m+"m";}
+        String duration(){return SessionStore.formatDuration(end-start);}
+        String screenOnDuration(){return SessionStore.formatDuration(onMs);}
     }
 }
