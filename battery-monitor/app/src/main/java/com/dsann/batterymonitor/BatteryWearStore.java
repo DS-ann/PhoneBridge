@@ -239,10 +239,10 @@ final class BatteryWearStore {
             String model=android.os.Build.MODEL==null?"":android.os.Build.MODEL.toLowerCase(Locale.US);
             String device=android.os.Build.DEVICE==null?"":android.os.Build.DEVICE.toLowerCase(Locale.US);
             if(model.contains("redmi pad 2")||model.contains("25040rp0")||device.contains("25040rp0")){
-                // Xiaomi specifies a 9000 mAh typical battery for the Redmi Pad 2. Use the
-                // device's published 9000 mAh capacity as the design-capacity fallback when HyperOS
-                // does not expose the fuel-gauge design value to this ordinary app.
-                return new SourceValue(9000000L,"device profile: Redmi Pad 2 published capacity");
+                // Do not invent a design capacity from a product-specification value.
+                // A design value is valid here only when HyperOS/kernel exposes an actual
+                // device battery-health value through one of the discovery paths above.
+                return null;
             }
         }catch(Throwable ignored){}
         return new SourceValue(0,"Unavailable");
