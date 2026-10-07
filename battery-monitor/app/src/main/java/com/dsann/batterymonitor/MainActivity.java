@@ -45,7 +45,7 @@ public class MainActivity extends Activity {
         
         LinearLayout root=new LinearLayout(this);
         root.setOrientation(LinearLayout.VERTICAL);
-        root.setBackgroundColor(0xFFF4F6F9);
+        root.setBackgroundColor(0xFF0F1115);
         
         LinearLayout header=new LinearLayout(this);
         header.setOrientation(LinearLayout.VERTICAL);
@@ -54,7 +54,7 @@ public class MainActivity extends Activity {
         appTitle.setTypeface(Typeface.DEFAULT,Typeface.BOLD);
         header.addView(appTitle,full());
         TextView subtitle=text("Battery monitor • sessions • health",13);
-        subtitle.setTextColor(0xFF707070);
+        subtitle.setTextColor(0xFF9AA0AA);
         header.addView(subtitle,top(2));
         root.addView(header);
         
@@ -104,9 +104,9 @@ public class MainActivity extends Activity {
         LinearLayout metrics=new LinearLayout(this);
         metrics.setOrientation(LinearLayout.HORIZONTAL);
         
-        LinearLayout voltageCard=metricCard("VOLTAGE","-- V",0xFFF2F7FC);
+        LinearLayout voltageCard=metricCard("VOLTAGE","-- V",0xFF172334,0xFF63B3FF);
         voltage=(TextView)voltageCard.getTag();
-        LinearLayout currentCard=metricCard("CURRENT","-- mA",0xFFF2F8F4);
+        LinearLayout currentCard=metricCard("CURRENT","-- mA",0xFF17271F,0xFF63E6A8);
         current=(TextView)currentCard.getTag();
         metrics.addView(voltageCard,new LinearLayout.LayoutParams(0,-2,1));
         LinearLayout.LayoutParams curLp=new LinearLayout.LayoutParams(0,-2,1);
@@ -124,13 +124,13 @@ public class MainActivity extends Activity {
         recordingTop.addView(notificationSwitch,new LinearLayout.LayoutParams(-2,-2));
         recording.addView(recordingTop,full());
         TextView recordingSub=text("Keeps the session updated while the app is closed.",13);
-        recordingSub.setTextColor(0xFF707070);
+        recordingSub.setTextColor(0xFF9AA0AA);
         recording.addView(recordingSub,top(2));
         
         LinearLayout sampling=new LinearLayout(this);
         sampling.setOrientation(LinearLayout.VERTICAL);
         samplingLabel=text("Sampling interval  •  15 s",13);
-        samplingLabel.setTextColor(0xFF606060);
+        samplingLabel.setTextColor(0xFF9AA0AA);
         sampling.addView(samplingLabel,full());
         samplingBar=new SeekBar(this);
         samplingBar.setMax(INTERVALS_MS.length-1);
@@ -164,7 +164,7 @@ public class MainActivity extends Activity {
         dozeRow.addView(disableDoze,dlp);
         dozeBox.addView(dozeRow,top(10));
         TextView dozeStatus=text("Normal idle behavior",12);
-        dozeStatus.setTextColor(0xFF777777);
+        dozeStatus.setTextColor(0xFF858D99);
         dozeBox.addView(dozeStatus,top(4));
         r.addView(dozeBox,top(12));
         
@@ -189,7 +189,7 @@ public class MainActivity extends Activity {
         percentRow.addView(resetPercent,rlp);
         percentBox.addView(percentRow,top(10));
         TextView percentStatus=text("Reset restores the real battery value.",12);
-        percentStatus.setTextColor(0xFF777777);
+        percentStatus.setTextColor(0xFF858D99);
         percentBox.addView(percentStatus,top(4));
         r.addView(percentBox,top(12));
         
@@ -219,9 +219,9 @@ public class MainActivity extends Activity {
         r.setPadding(dp(16),dp(4),dp(16),dp(20));
         TextView title=text("Battery health",22); title.setTypeface(Typeface.DEFAULT,Typeface.BOLD); r.addView(title,full());
         TextView sub=text("Standard Android battery properties and Linux fuel-gauge data.",13); sub.setTextColor(0xFF707070); r.addView(sub,top(2));
-        LinearLayout overview=card(0xFFF4F0FB);
+        LinearLayout overview=card(0xFF201B2B,0xFFB58CFF);
         healthLevel=text("--%",30); healthLevel.setTypeface(Typeface.DEFAULT,Typeface.BOLD); overview.addView(healthLevel,full());
-        healthStatus=text("Status: --",14); healthStatus.setTextColor(0xFF666666); overview.addView(healthStatus,top(4));
+        healthStatus=text("Status: --",14); healthStatus.setTextColor(0xFF9AA0AA); overview.addView(healthStatus,top(4));
         r.addView(overview,top(12));
         addHealthField(r,"Full charge capacity","healthFullCharge");
         addHealthField(r,"Remaining charge counter","healthRemaining");
@@ -243,21 +243,22 @@ public class MainActivity extends Activity {
         LinearLayout sourceCard=infoCard("LIVE SOURCE","--"); healthSource=(TextView)sourceCard.getTag();
         row2.addView(currentCard,new LinearLayout.LayoutParams(0,-2,1)); x=new LinearLayout.LayoutParams(0,-2,1); x.leftMargin=dp(8); row2.addView(sourceCard,x);
         r.addView(row2,top(8));
-        TextView note=text("BatteryPulse uses standard Android battery APIs and Linux power_supply data, with root access used to fill protected kernel values when available.",12); note.setTextColor(0xFF777777); r.addView(note,top(12));
+        TextView note=text("BatteryPulse uses standard Android battery APIs and Linux power_supply data, with root access used to fill protected kernel values when available.",12); note.setTextColor(0xFF858D99); r.addView(note,top(12));
         return r;
     }
     private void addHealthField(LinearLayout parent,String label,String key){
-        int bgColor=0xFFFFFFFF;
-        if("healthFullCharge".equals(key)) bgColor=0xFFEAF4FF;
-        else if("healthRemaining".equals(key)) bgColor=0xFFEAFBF2;
-        else if("healthDesign".equals(key)) bgColor=0xFFFFF6E5;
-        else if("healthRatio".equals(key)) bgColor=0xFFF3ECFF;
-        else if("healthRaw".equals(key)) bgColor=0xFFFFEEF2;
-        else if("healthFile".equals(key)) bgColor=0xFFEDF4F7;
-        else if("healthFullEnergy".equals(key)||"healthDesignEnergy".equals(key)) bgColor=0xFFF0F7FF;
-        else if("healthSessionEstimate".equals(key)||"healthSessionHealth".equals(key)) bgColor=0xFFEFF8EE;
-        LinearLayout c=card(bgColor);
-        TextView l=text(label,11); l.setTypeface(Typeface.DEFAULT,Typeface.BOLD); l.setTextColor(0xFF777777); c.addView(l,full());
+        int bgColor=0xFF171A20;
+        int strokeColor=0xFF303744;
+        if("healthFullCharge".equals(key)) { bgColor=0xFF172334; strokeColor=0xFF63B3FF; }
+        else if("healthRemaining".equals(key)) { bgColor=0xFF17271F; strokeColor=0xFF63E6A8; }
+        else if("healthDesign".equals(key)) { bgColor=0xFF211E18; strokeColor=0xFFFFC86B; }
+        else if("healthRatio".equals(key)) { bgColor=0xFF201B2B; strokeColor=0xFFB58CFF; }
+        else if("healthRaw".equals(key)) { bgColor=0xFF261A20; strokeColor=0xFFFF7F9A; }
+        else if("healthFile".equals(key)) { bgColor=0xFF18242A; strokeColor=0xFF69C7D8; }
+        else if("healthFullEnergy".equals(key)||"healthDesignEnergy".equals(key)) { bgColor=0xFF182334; strokeColor=0xFF7CC7FF; }
+        else if("healthSessionEstimate".equals(key)||"healthSessionHealth".equals(key)) { bgColor=0xFF17271F; strokeColor=0xFF63E6A8; }
+        LinearLayout c=card(bgColor,strokeColor);
+        TextView l=text(label,11); l.setTypeface(Typeface.DEFAULT,Typeface.BOLD); l.setTextColor(0xFF9AA0AA); c.addView(l,full());
         TextView v=text("Unavailable",16); v.setTypeface(Typeface.DEFAULT,Typeface.BOLD); c.addView(v,top(4));
         if("healthFullCharge".equals(key)) healthFullCharge=v;
         else if("healthRemaining".equals(key)) healthRemaining=v;
@@ -272,7 +273,7 @@ public class MainActivity extends Activity {
         parent.addView(c,top(7));
     }
     private LinearLayout infoCard(String label,String value){
-        LinearLayout c=card(Color.WHITE); TextView l=text(label,10); l.setTypeface(Typeface.DEFAULT,Typeface.BOLD); l.setTextColor(0xFF777777); c.addView(l,full());
+        LinearLayout c=card(0xFF171A20,0xFF303744); TextView l=text(label,10); l.setTypeface(Typeface.DEFAULT,Typeface.BOLD); l.setTextColor(0xFF8E96A3); c.addView(l,full());
         TextView v=text(value,17); v.setTypeface(Typeface.DEFAULT,Typeface.BOLD); c.setTag(v); c.addView(v,top(5)); return c;
     }
     private void showTab(int index){
@@ -396,7 +397,7 @@ public class MainActivity extends Activity {
             title.setTypeface(Typeface.DEFAULT,Typeface.BOLD);
             card.addView(title,full());
             TextView details=text(rec.date()+"  •  "+rec.duration(),13);
-            details.setTextColor(0xFF707070);
+            details.setTextColor(0xFF9AA0AA);
             card.addView(details,top(3));
             String currentRange=Double.isNaN(rec.minCurrent)?"Current: --":"Current: min "+formatSigned(rec.minCurrent)+" mA  •  max "+formatSigned(rec.maxCurrent)+" mA";
             String percentRange=(rec.startPercent>=0&&rec.endPercent>=0)?"Battery: "+rec.startPercent+"% → "+rec.endPercent+"%  ("+String.format(java.util.Locale.US,"%+d%%",rec.endPercent-rec.startPercent)+")":"Battery: --";
@@ -458,7 +459,7 @@ public class MainActivity extends Activity {
     }
     
     private LinearLayout toolCard(String title,String subtitle){
-        LinearLayout c=card(0xFFFEFCF6);
+        LinearLayout c=card(0xFF211E18,0xFFFFC86B);
         TextView t=text(title,16);
         t.setTypeface(Typeface.DEFAULT,Typeface.BOLD);
         c.addView(t,full());
