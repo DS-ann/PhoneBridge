@@ -2,6 +2,7 @@ package com.dsann.batterymonitor;
 
 import android.content.Context;
 import android.os.BatteryManager;
+
 import java.io.BufferedReader;
 import java.io.BufferedWriter;
 import java.io.File;
@@ -13,10 +14,29 @@ import java.util.Map;
 import java.util.TreeMap;
 
 final class BatteryHealthReader {
+    private static final long UNAVAILABLE = Long.MIN_VALUE;
+    private static final long DESIGN_CAPACITY_MAH = 4050L;
+
     private static final String[] NAMES = {
             "charge_full", "charge_full_design", "charge_counter",
             "energy_full", "energy_full_design", "health"
     };
+
+    // Lenovo/MediaTek MTK battery_meter exposes fuel-gauge debug attributes
+    // directly under the battery_meter platform device on this phone.
+    private static final String[] BATTERY_METER_ROOTS = {
+            "/system/devices/platform/battery_meter",
+            "/sys/devices/platform/battery_meter"
+    };
+
+    private static final String QMAX = "FG_g_fg_dbg_bat_qmax";
+    private static final String PERCENT = "FG_g_fg_dbg_percentage";
+    private static final String PERCENT_FG = "FG_g_fg_dbg_percentage_fg";
+    private static final String PERCENT_VOLT = "FG_g_fg_dbg_percentage_voltmode";
+    private static final String CAR = "FG_g_fg_dbg_bat_car";
+    private static final String FG_CURRENT = "FG_Current";
+    private static final String FG_VOLT = "FG_g_fg_dbg_bat_volt";
+    private static final String FG_TEMP = "FG_g_fg_dbg_bat_temp";
 
     private BatteryHealthReader() {}
 
@@ -31,45 +51,72 @@ final class BatteryHealthReader {
             } catch (Throwable ignored) {}
         }
 
-        // Normal Android/Linux power_supply access first.
-        Map<String,String> files = readSysfs();
-
-        // This phone is rooted. Use root only to fill values that normal
-        // app access could not read; do not replace already-readable data.
+        Map<String,String> files = readPowerSupply();
         Map<String,String> rootFiles = readAsRoot();
         mergeMissing(files, rootFiles);
 
         for (Map.Entry<String,String> e : files.entrySet()) {
             String key = e.getKey();
             String value = e.getValue();
-            if ("charge_full".equals(key) && d.fullChargeUaH == Long.MIN_VALUE) d.fullChargeUaH = parse(value);
-            else if ("charge_full_design".equals(key) && d.designChargeUaH == Long.MIN_VALUE) d.designChargeUaH = parse(value);
-            else if ("charge_counter".equals(key) && d.remainingChargeUaH == Long.MIN_VALUE) d.remainingChargeUaH = parse(value);
-            else if ("energy_full".equals(key) && d.fullEnergyUWh == Long.MIN_VALUE) d.fullEnergyUWh = parse(value);
-            else if ("energy_full_design".equals(key) && d.designEnergyUWh == Long.MIN_VALUE) d.designEnergyUWh = parse(value);
+            if ("charge_full".equals(key) && d.fullChargeUaH == UNAVAILABLE) d.fullChargeUaH = parse(value);
+            else if ("charge_full_design".equals(key) && d.designChargeUaH == UNAVAILABLE) d.designChargeUaH = parse(value);
+            else if ("charge_counter".equals(key) && d.remainingChargeUaH == UNAVAILABLE) d.remainingChargeUaH = parse(value);
+            else if ("energy_full".equals(key) && d.fullEnergyUWh == UNAVAILABLE) d.fullEnergyUWh = parse(value);
+            else if ("energy_full_design".equals(key) && d.designEnergyUWh == UNAVAILABLE) d.designEnergyUWh = parse(value);
             else if ("health".equals(key) && d.rawHealth == null) d.rawHealth = value;
         }
 
-        d.sourceFile = sourceFor(files);
+        // On this MTK firmware qmax is the fuel-gauge's aging-adjusted
+        // maximum battery capacity, expressed in mAh by the vendor driver.
+        String qmax = files.get(QMAX);
+        if (d.fullChargeUaH == UNAVAILABLE && qmax != null) {
+            long mah = parse(qmax);
+            if (mah > 0) {
+                d.fullChargeUaH = mah * 1000L;
+                d.rawHealth = "MTK qmax / aging capacity: " + mah + " mAh";
+                d.sourceFile = files.get("_source_"+QMAX);
+            }
+        }
+
+        if (d.designChargeUaH == UNAVAILABLE) {
+            d.designChargeUaH = DESIGN_CAPACITY_MAH * 1000L;
+            d.designSource = "Lenovo rated battery capacity: 4050 mAh";
+        }
+
+        if (d.rawHealth == null && files.get(PERCENT) != null) {
+            d.rawHealth = "MTK fuel-gauge UI percentage: " + files.get(PERCENT) + "%";
+        }
+
+        if (d.sourceFile.equals("Unavailable")) {
+            d.sourceFile = sourceFor(files);
+        }
+
         if (d.fullChargeUaH > 0 && d.designChargeUaH > 0) {
             d.ratio = d.fullChargeUaH * 100.0 / d.designChargeUaH;
         }
+
+        d.vendorQmax = qmax;
+        d.vendorPercentage = files.get(PERCENT);
+        d.vendorPercentageFg = files.get(PERCENT_FG);
+        d.vendorPercentageVolt = files.get(PERCENT_VOLT);
+        d.vendorCar = files.get(CAR);
+        d.vendorCurrent = files.get(FG_CURRENT);
+        d.vendorVoltage = files.get(FG_VOLT);
+        d.vendorTemperature = files.get(FG_TEMP);
         return d;
     }
 
     private static void mergeMissing(Map<String,String> target, Map<String,String> fallback) {
         for (Map.Entry<String,String> e : fallback.entrySet()) {
-            if (!target.containsKey(e.getKey())) {
-                target.put(e.getKey(), e.getValue());
-            }
+            if (!target.containsKey(e.getKey())) target.put(e.getKey(), e.getValue());
         }
     }
 
     private static long parse(String s) {
-        try { return Long.parseLong(s.trim()); } catch (Exception e) { return Long.MIN_VALUE; }
+        try { return Long.parseLong(s.trim()); } catch (Exception e) { return UNAVAILABLE; }
     }
 
-    private static Map<String,String> readSysfs() {
+    private static Map<String,String> readPowerSupply() {
         Map<String,String> out = new TreeMap<>();
         File root = new File("/sys/class/power_supply");
         File[] dirs = root.listFiles();
@@ -81,7 +128,7 @@ final class BatteryHealthReader {
                 if (!f.canRead()) continue;
                 try (BufferedReader br = new BufferedReader(new FileReader(f))) {
                     String v = br.readLine();
-                    if (v != null && v.trim().length() > 0) {
+                    if (v != null && !v.trim().isEmpty()) {
                         out.put(name, v.trim());
                         if ("battery".equals(dir.getName())) out.put("_source_"+name, f.getAbsolutePath());
                     }
@@ -96,30 +143,42 @@ final class BatteryHealthReader {
         Process p = null;
         try {
             p = Runtime.getRuntime().exec(new String[]{"su"});
-            BufferedWriter in = new BufferedWriter(new OutputStreamWriter(p.getOutputStream()));
-            BufferedReader outReader = new BufferedReader(new InputStreamReader(p.getInputStream()));
+            BufferedWriter stdin = new BufferedWriter(new OutputStreamWriter(p.getOutputStream()));
+            BufferedReader stdout = new BufferedReader(new InputStreamReader(p.getInputStream()));
+
             StringBuilder cmd = new StringBuilder();
             cmd.append("for d in /sys/class/power_supply/*; do ");
             cmd.append("[ -d \"$d\" ] || continue; ");
             cmd.append("for n in charge_full charge_full_design charge_counter energy_full energy_full_design health; do ");
             cmd.append("if [ -f \"$d/$n\" ]; then printf '%s|%s|%s\\n' \"$d\" \"$n\" \"$(cat \"$d/$n\")\"; fi; ");
+            cmd.append("done; done; ");
+
+            cmd.append("for base in ");
+            for (String root : BATTERY_METER_ROOTS) cmd.append(root).append(" ");
+            cmd.append("; do [ -d \"$base\" ] || continue; ");
+            cmd.append("for n in ").append(QMAX).append(" ").append(PERCENT).append(" ").append(PERCENT_FG)
+                    .append(" ").append(PERCENT_VOLT).append(" ").append(CAR).append(" ")
+                    .append(FG_CURRENT).append(" ").append(FG_VOLT).append(" ").append(FG_TEMP).append("; do ");
+            cmd.append("if [ -f \"$base/$n\" ]; then printf 'BM|%s|%s|%s\\n' \"$base\" \"$n\" \"$(cat \"$base/$n\")\"; fi; ");
             cmd.append("done; done; exit");
-            in.write(cmd.toString());
-            in.newLine();
-            in.flush();
+
+            stdin.write(cmd.toString());
+            stdin.newLine();
+            stdin.flush();
 
             String line;
-            while ((line = outReader.readLine()) != null) {
-                String[] parts = line.split("\\|", 3);
-                if (parts.length == 3 && parts[2].trim().length() > 0) {
+            while ((line = stdout.readLine()) != null) {
+                String[] parts = line.split("\\|", 4);
+                if (parts.length == 3) {
                     out.put(parts[1], parts[2].trim());
-                    if ("battery".equals(new File(parts[0]).getName())) {
-                        out.put("_source_"+parts[1], parts[0]+"/"+parts[1]);
-                    }
+                    out.put("_source_"+parts[1], parts[0]+"/"+parts[1]);
+                } else if (parts.length == 4 && "BM".equals(parts[0])) {
+                    out.put(parts[2], parts[3].trim());
+                    out.put("_source_"+parts[2], parts[1]+"/"+parts[2]);
                 }
             }
-            in.close();
-            outReader.close();
+            stdin.close();
+            stdout.close();
             p.waitFor();
         } catch (Exception ignored) {
             if (p != null) p.destroy();
@@ -128,7 +187,7 @@ final class BatteryHealthReader {
     }
 
     private static String sourceFor(Map<String,String> files) {
-        for (String name : NAMES) {
+        for (String name : new String[]{QMAX, "charge_full", "charge_counter", "charge_full_design"}) {
             String s = files.get("_source_"+name);
             if (s != null) return s;
         }
@@ -136,14 +195,16 @@ final class BatteryHealthReader {
     }
 
     static final class Data {
-        long fullChargeUaH = Long.MIN_VALUE;
-        long remainingChargeUaH = Long.MIN_VALUE;
-        long designChargeUaH = Long.MIN_VALUE;
-        long fullEnergyUWh = Long.MIN_VALUE;
-        long designEnergyUWh = Long.MIN_VALUE;
+        long fullChargeUaH = UNAVAILABLE;
+        long remainingChargeUaH = UNAVAILABLE;
+        long designChargeUaH = UNAVAILABLE;
+        long fullEnergyUWh = UNAVAILABLE;
+        long designEnergyUWh = UNAVAILABLE;
         double ratio = Double.NaN;
         String rawHealth;
         String sourceFile = "Unavailable";
+        String designSource = "Android/Linux unavailable";
+        String vendorQmax, vendorPercentage, vendorPercentageFg, vendorPercentageVolt, vendorCar, vendorCurrent, vendorVoltage, vendorTemperature;
 
         String charge(long value) {
             return value > 0 ? String.format(Locale.US, "%.0f mAh", value / 1000.0) : "Unavailable";
