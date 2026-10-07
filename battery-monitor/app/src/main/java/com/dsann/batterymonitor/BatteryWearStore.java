@@ -150,6 +150,10 @@ final class BatteryWearStore {
             if(design){v=discoverFromFrameworkResources(c);if(v.value>0)return v;}
         }
         v=discoverFromProperties(design);if(v.value>0)return v;
+        if(design){
+            v=discoverFromPowerProfile();if(v.value>0)return v;
+            v=discoverFromKnownDeviceProfile();if(v.value>0)return v;
+        }
         return new SourceValue(0,"Unavailable");
     }
 
@@ -187,7 +191,7 @@ final class BatteryWearStore {
     }
     private static boolean isCapacityKey(String k,boolean design){
         if(k.equals("capacity")||k.equals("level")||k.contains("percent")||k.contains("temperature")||k.contains("voltage")||k.contains("current"))return false;
-        if(design)return (k.contains("design")&&(k.contains("cap")||k.contains("charge")||k.contains("energy")))||k.contains("rated_capacity")||k.contains("nominal_capacity")||k.contains("battery_capacity_design")||k.equals("battery_capacity");
+        if(design)return (k.contains("design")&&(k.contains("cap")||k.contains("charge")||k.contains("energy")))||k.contains("rated_capacity")||k.contains("nominal_capacity")||k.contains("battery_capacity_design")||k.equals("battery_capacity")||k.equals("battery.capacity")||k.equals("totalbatterycapacity")||k.equals("total_battery_capacity");
         return k.contains("charge_full")||k.contains("full_charge")||k.contains("fullcapacity")||k.contains("full_capacity")||k.endsWith("fcc")||k.equals("fcc")||k.contains("qmax");
     }
     private static SourceValue discoverFromFrameworkResources(Context c){
@@ -200,6 +204,44 @@ final class BatteryWearStore {
                     long uah=normalizeCapacity(raw);
                     if(isPlausibleCapacity(uah))return new SourceValue(uah,"Android framework resource: "+name);
                 }
+            }
+        }catch(Throwable ignored){}
+        return new SourceValue(0,"Unavailable");
+    }
+
+    private static SourceValue discoverFromPowerProfile(){
+        String[] paths={
+            "/system/etc/power_profile.xml",
+            "/vendor/etc/power_profile.xml",
+            "/product/etc/power_profile.xml",
+            "/odm/etc/power_profile.xml",
+            "/system_ext/etc/power_profile.xml"
+        };
+        Pattern p=Pattern.compile("<item\\s+name=[\\\"']battery\\.capacity[\\\"']\\s*>([0-9]+(?:\\.[0-9]+)?)\\s*</item>",Pattern.CASE_INSENSITIVE);
+        for(String path:paths){
+            File f=new File(path);
+            if(!f.isFile()||!f.canRead())continue;
+            try(BufferedReader br=new BufferedReader(new FileReader(f))){
+                String line; StringBuilder all=new StringBuilder();
+                while((line=br.readLine())!=null)all.append(line);
+                Matcher m=p.matcher(all.toString());
+                if(m.find()){
+                    long uah=normalizeCapacity(numberFromObject(m.group(1)));
+                    if(isPlausibleCapacity(uah))return new SourceValue(uah,"power_profile.xml: "+path);
+                }
+            }catch(Exception ignored){}
+        }
+        return new SourceValue(0,"Unavailable");
+    }
+
+    private static SourceValue discoverFromKnownDeviceProfile(){
+        try{
+            String model=android.os.Build.MODEL==null?"":android.os.Build.MODEL.toLowerCase(Locale.US);
+            String device=android.os.Build.DEVICE==null?"":android.os.Build.DEVICE.toLowerCase(Locale.US);
+            if(model.contains("redmi pad 2")||model.contains("25040rp0")||device.contains("25040rp0")){
+                // Xiaomi specifies 9000 mAh typical; the EU product information sheet specifies
+                // 8800 mAh rated capacity. Use the rated figure as the design-capacity fallback.
+                return new SourceValue(8800000L,"device profile: Redmi Pad 2 rated capacity");
             }
         }catch(Throwable ignored){}
         return new SourceValue(0,"Unavailable");
