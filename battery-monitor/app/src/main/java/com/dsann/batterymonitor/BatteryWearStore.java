@@ -44,7 +44,7 @@ final class BatteryWearStore {
     }
 
     static synchronized void updateEstimatedHealth(Context c){
-        long design=normalizeCapacity(firstPositive(DESIGN_PATHS));
+        long design=normalizeCapacity(firstReadable("charge_full_design"));
         ArrayList<SessionStore.Record> q=new ArrayList<>();
         for(SessionStore.Record r:SessionStore.getRecords(c)){
             if(!r.charging)continue;
