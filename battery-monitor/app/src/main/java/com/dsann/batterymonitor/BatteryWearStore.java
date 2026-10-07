@@ -1,3 +1,4 @@
+// BatteryWearStore.java
 package com.dsann.batterymonitor;
 
 import android.content.Context;
@@ -24,6 +25,43 @@ final class BatteryWearStore {
     private static final int HEALTH_MIN_CHARGE_PERCENT=40;
     private static final double ACCUBATTERY_VMAX=4.35,ACCUBATTERY_LINEAR_CUTOFF=3.95;
     private static final double MIN_ESTIMATED_CAPACITY_MAH=1000,MAX_ESTIMATED_CAPACITY_MAH=30000;
+
+    /** power_supply nodes that actually exist on HyperOS/MIUI/AOSP devices. */
+    private static final String[] POWER_SUPPLY_DIRS={
+            "battery","bms","maxfg","fuelgauge","fg","mtk-battery","main","charge","battery1"
+    };
+
+    /** Design (rated) capacity attribute names, most specific first. */
+    private static final String[] DESIGN_CAPACITY_NAMES={
+            "charge_full_design","charge_full_design_uah","battery_charge_full_design",
+            "battery_design_capacity","design_capacity","design_capacity_uah","capacity_design",
+            "fg_design_capacity","rated_capacity","nominal_capacity",
+            "battery_capacity_design","capacity_full_design","battery_capacity","battery.capacity"
+    };
+
+    /** Currently usable full-charge capacity attribute names. */
+    private static final String[] FULL_CAPACITY_NAMES={
+            "charge_full","charge_full_uah","full_charge_capacity","full_capacity",
+            "battery_full_capacity","fg_full_capacity","battery_capacity_full","fcc","qmax"
+    };
+
+    private static final String[] POWER_PROFILE_PATHS={
+            "/system/etc/power_profile.xml",
+            "/system/etc/power_profile/power_profile.xml",
+            "/vendor/etc/power_profile.xml",
+            "/vendor/etc/power_profile/power_profile.xml",
+            "/product/etc/power_profile.xml",
+            "/product/etc/power_profile/power_profile.xml",
+            "/odm/etc/power_profile.xml",
+            "/odm/etc/power_profile/power_profile.xml",
+            "/system_ext/etc/power_profile.xml",
+            "/system_ext/etc/power_profile/power_profile.xml"
+    };
+
+    private static final Pattern BATTERY_CAPACITY_ITEM=Pattern.compile(
+            "<item\\s+[^>]*name\\s*=\\s*[\"']battery\\.capacity[\"'][^>]*>\\s*([0-9]+(?:\\.[0-9]+)?)",
+            Pattern.CASE_INSENSITIVE);
+
     private BatteryWearStore(){}
 
     static synchronized void update(Context c){
@@ -142,37 +180,140 @@ final class BatteryWearStore {
     static String fullEnergySource(){return firstReadableSource("energy_full");}
     static String designEnergySource(){return firstReadableSource("energy_full_design");}
 
+    // ---------------------------------------------------------------------
+    // Discovery pipeline
+    // ---------------------------------------------------------------------
+
     private static SourceValue discoverCapacity(Context c,boolean design){
-        SourceValue v=discoverFromSysfs(design);
+        // 1. uevent is world readable on virtually every device (incl. unrooted
+        //    HyperOS) and usually carries CHARGE_FULL / CHARGE_FULL_DESIGN even
+        //    when the individual sysfs attribute files are locked down.
+        SourceValue v=discoverFromUevent(design);
         if(v.value>0)return v;
+
+        // 2. Direct sysfs attributes.
+        v=discoverFromSysfs(design);
+        if(v.value>0)return v;
+
         if(c!=null){
             v=discoverFromBatteryIntent(c,design);if(v.value>0)return v;
             if(design){v=discoverFromFrameworkResources(c);if(v.value>0)return v;}
         }
+
+        // 3. System properties.
         v=discoverFromProperties(design);if(v.value>0)return v;
+
         if(design){
             v=discoverFromPowerProfile();if(v.value>0)return v;
-            v=discoverFromKnownDeviceProfile();if(v.value>0)return v;
+            v=discoverFromKnownDeviceProfile();if(v!=null&&v.value>0)return v;
         }
         return new SourceValue(0,"Unavailable");
     }
 
-    private static SourceValue discoverFromSysfs(boolean design){
-        String[] roots={"/sys/class/power_supply","/sys/devices/virtual/power_supply","/sys/devices/platform"};
-        String[] preferred=design?new String[]{"charge_full_design","battery_design_capacity","design_capacity","capacity_design","fg_design_capacity","rated_capacity","nominal_capacity","battery_capacity_design","battery_capacity","capacity_full_design"}:new String[]{"charge_full","full_charge_capacity","full_capacity","battery_full_capacity","fg_full_capacity","fcc","qmax"};
-        for(String root:roots){SourceValue v=scanTree(new File(root),preferred,0,new int[]{0});if(v.value>0)return v;}
+    // ---- uevent ---------------------------------------------------------
+
+    private static SourceValue discoverFromUevent(boolean design){
+        for(String name:POWER_SUPPLY_DIRS){
+            SourceValue v=readUevent(new File(POWER_SUPPLY_ROOT+"/"+name+"/uevent"),design);
+            if(v.value>0)return v;
+        }
+        File root=new File(POWER_SUPPLY_ROOT);
+        File[] dirs=root.listFiles();
+        if(dirs!=null)for(File d:dirs){
+            if(!d.isDirectory())continue;
+            SourceValue v=readUevent(new File(d,"uevent"),design);
+            if(v.value>0)return v;
+        }
         return new SourceValue(0,"Unavailable");
     }
-    private static SourceValue scanTree(File dir,String[] names,int depth,int[] count){
+
+    private static SourceValue readUevent(File f,boolean design){
+        if(f==null||!f.isFile()||!f.canRead())return new SourceValue(0,"Unavailable");
+        try(BufferedReader br=new BufferedReader(new FileReader(f))){
+            String line;
+            while((line=br.readLine())!=null){
+                int eq=line.indexOf('=');
+                if(eq<=0)continue;
+                String key=line.substring(0,eq).trim().toLowerCase(Locale.US);
+                if(!matchesCapacityKey(key,design))continue;
+                long uah=normalizeCapacity(numberFromObject(line.substring(eq+1).trim()));
+                if(isPlausibleCapacity(uah))
+                    return new SourceValue(uah,f.getAbsolutePath()+" ["+key.toUpperCase(Locale.US)+"]");
+            }
+        }catch(Exception ignored){}
+        return new SourceValue(0,"Unavailable");
+    }
+
+    // ---- sysfs ----------------------------------------------------------
+
+    private static SourceValue discoverFromSysfs(boolean design){
+        String[] names=design?DESIGN_CAPACITY_NAMES:FULL_CAPACITY_NAMES;
+
+        for(String dir:POWER_SUPPLY_DIRS){
+            SourceValue v=readCapacityDir(new File(POWER_SUPPLY_ROOT,dir),names,design);
+            if(v.value>0)return v;
+        }
+
+        String[] roots={"/sys/class/power_supply","/sys/devices/virtual/power_supply","/sys/devices/platform"};
+        for(String root:roots){
+            SourceValue v=scanTree(new File(root),names,0,new int[]{0},design);
+            if(v.value>0)return v;
+        }
+        return new SourceValue(0,"Unavailable");
+    }
+
+    /** Reads the known attribute names from one power_supply node. */
+    private static SourceValue readCapacityDir(File dir,String[] names,boolean design){
+        if(dir==null||!dir.isDirectory()||!dir.canRead())return new SourceValue(0,"Unavailable");
+
+        // exact attribute names first
+        for(String name:names){
+            File f=new File(dir,name);
+            if(f.isFile()&&f.canRead()){
+                long uah=normalizeCapacity(readNumeric(f));
+                if(isPlausibleCapacity(uah))return new SourceValue(uah,f.getAbsolutePath());
+            }
+        }
+        // then suffixed variants (e.g. charge_full_design_uah)
+        File[] files=dir.listFiles();
+        if(files==null)return new SourceValue(0,"Unavailable");
+        for(File f:files){
+            if(!f.isFile()||!f.canRead())continue;
+            String n=f.getName().toLowerCase(Locale.US);
+            if(!design&&n.contains("design"))continue;   // never report design as "full"
+            for(String wanted:names){
+                if(n.equals(wanted)||n.contains(wanted)){
+                    long uah=normalizeCapacity(readNumeric(f));
+                    if(isPlausibleCapacity(uah))return new SourceValue(uah,f.getAbsolutePath());
+                    break;
+                }
+            }
+        }
+        return new SourceValue(0,"Unavailable");
+    }
+
+    private static SourceValue scanTree(File dir,String[] names,int depth,int[] count,boolean design){
         if(dir==null||depth>5||count[0]>6000||!dir.isDirectory()||!dir.canRead())return new SourceValue(0,"Unavailable");
         File[] files=dir.listFiles();if(files==null)return new SourceValue(0,"Unavailable");
-        for(File f:files){count[0]++;if(f.isFile()&&f.canRead()){String n=f.getName().toLowerCase(Locale.US);for(String wanted:names){if(n.equals(wanted)||n.contains(wanted)){long raw=readNumeric(f);long uah=normalizeCapacity(raw);if(isPlausibleCapacity(uah))return new SourceValue(uah,f.getAbsolutePath());}}}}
-        for(File f:files)if(f.isDirectory()){SourceValue v=scanTree(f,names,depth+1,count);if(v.value>0)return v;}
-        if(designCandidate(dir.getName())){
+        for(File f:files){
+            count[0]++;
+            if(f.isFile()&&f.canRead()){
+                String n=f.getName().toLowerCase(Locale.US);
+                if(!design&&n.contains("design"))continue;
+                for(String wanted:names){
+                    if(n.equals(wanted)||n.contains(wanted)){
+                        long uah=normalizeCapacity(readNumeric(f));
+                        if(isPlausibleCapacity(uah))return new SourceValue(uah,f.getAbsolutePath());
+                    }
+                }
+            }
+        }
+        for(File f:files)if(f.isDirectory()){SourceValue v=scanTree(f,names,depth+1,count,design);if(v.value>0)return v;}
+        if(design&&designCandidate(dir.getName())){
             for(File f:files)if(f.isFile()&&f.canRead()){
                 String n=f.getName().toLowerCase(Locale.US);
                 if((n.contains("capacity")||n.contains("charge")||n.contains("qmax"))&&
-                        (n.contains("design")||n.contains("rated")||n.contains("nominal")||n.contains("full"))){
+                        (n.contains("design")||n.contains("rated")||n.contains("nominal"))){
                     long uah=normalizeCapacity(readNumeric(f));
                     if(isPlausibleCapacity(uah))return new SourceValue(uah,f.getAbsolutePath());
                 }
@@ -184,16 +325,15 @@ final class BatteryWearStore {
         String x=n.toLowerCase(Locale.US);
         return x.contains("battery")||x.contains("bms")||x.contains("fuel")||x.contains("power")||x.contains("charger")||x.contains("gauge");
     }
+
+    // ---- Android framework ---------------------------------------------
+
     private static SourceValue discoverFromBatteryIntent(Context c,boolean design){
         try{Intent i=c.registerReceiver(null,new android.content.IntentFilter(Intent.ACTION_BATTERY_CHANGED));if(i==null)return new SourceValue(0,"Unavailable");Bundle b=i.getExtras();if(b==null)return new SourceValue(0,"Unavailable");
-            for(String key:b.keySet()){String k=key.toLowerCase(Locale.US);if(!isCapacityKey(k,design))continue;Object o=b.get(key);long raw=numberFromObject(o);long uah=normalizeCapacity(raw);if(isPlausibleCapacity(uah))return new SourceValue(uah,"Android ACTION_BATTERY_CHANGED extra: "+key);}
+            for(String key:b.keySet()){String k=key.toLowerCase(Locale.US);if(!matchesCapacityKey(k,design))continue;Object o=b.get(key);long raw=numberFromObject(o);long uah=normalizeCapacity(raw);if(isPlausibleCapacity(uah))return new SourceValue(uah,"Android ACTION_BATTERY_CHANGED extra: "+key);}
         }catch(Throwable ignored){} return new SourceValue(0,"Unavailable");
     }
-    private static boolean isCapacityKey(String k,boolean design){
-        if(k.equals("capacity")||k.equals("level")||k.contains("percent")||k.contains("temperature")||k.contains("voltage")||k.contains("current"))return false;
-        if(design)return (k.contains("design")&&(k.contains("cap")||k.contains("charge")||k.contains("energy")))||k.contains("rated_capacity")||k.contains("nominal_capacity")||k.contains("battery_capacity_design")||k.equals("battery_capacity")||k.equals("battery.capacity")||k.equals("totalbatterycapacity")||k.equals("total_battery_capacity");
-        return k.contains("charge_full")||k.contains("full_charge")||k.contains("fullcapacity")||k.contains("full_capacity")||k.endsWith("fcc")||k.equals("fcc")||k.contains("qmax");
-    }
+
     private static SourceValue discoverFromFrameworkResources(Context c){
         try{
             String[] names={"config_batteryCapacity","config_battery_capacity","battery_capacity","batteryCapacity"};
@@ -208,23 +348,16 @@ final class BatteryWearStore {
         }catch(Throwable ignored){}
         return new SourceValue(0,"Unavailable");
     }
+  // ---- power_profile.xml ---------------------------------------------
 
     private static SourceValue discoverFromPowerProfile(){
-        String[] paths={
-            "/system/etc/power_profile.xml",
-            "/vendor/etc/power_profile.xml",
-            "/product/etc/power_profile.xml",
-            "/odm/etc/power_profile.xml",
-            "/system_ext/etc/power_profile.xml"
-        };
-        Pattern p=Pattern.compile("<item\\s+name=[\\\"']battery\\.capacity[\\\"']\\s*>([0-9]+(?:\\.[0-9]+)?)\\s*</item>",Pattern.CASE_INSENSITIVE);
-        for(String path:paths){
+        for(String path:POWER_PROFILE_PATHS){
             File f=new File(path);
             if(!f.isFile()||!f.canRead())continue;
             try(BufferedReader br=new BufferedReader(new FileReader(f))){
-                String line; StringBuilder all=new StringBuilder();
+                String line;StringBuilder all=new StringBuilder();
                 while((line=br.readLine())!=null)all.append(line);
-                Matcher m=p.matcher(all.toString());
+                Matcher m=BATTERY_CAPACITY_ITEM.matcher(all.toString());
                 if(m.find()){
                     long uah=normalizeCapacity(numberFromObject(m.group(1)));
                     if(isPlausibleCapacity(uah))return new SourceValue(uah,"power_profile.xml: "+path);
@@ -234,6 +367,8 @@ final class BatteryWearStore {
         return new SourceValue(0,"Unavailable");
     }
 
+    // ---- known devices --------------------------------------------------
+
     private static SourceValue discoverFromKnownDeviceProfile(){
         try{
             String model=android.os.Build.MODEL==null?"":android.os.Build.MODEL.toLowerCase(Locale.US);
@@ -242,17 +377,53 @@ final class BatteryWearStore {
                 // Do not invent a design capacity from a product-specification value.
                 // A design value is valid here only when HyperOS/kernel exposes an actual
                 // device battery-health value through one of the discovery paths above.
-                return null;
+                return new SourceValue(0,"Unavailable");
             }
         }catch(Throwable ignored){}
         return new SourceValue(0,"Unavailable");
     }
 
+    // ---- system properties ---------------------------------------------
+
     private static SourceValue discoverFromProperties(boolean design){
         try{Process p=Runtime.getRuntime().exec(new String[]{"/system/bin/getprop"});BufferedReader br=new BufferedReader(new InputStreamReader(p.getInputStream()));String line;Pattern pat=Pattern.compile("\\[([^]]+)\\]\\s*:\\s*\\[([^]]*)\\]");
-            while((line=br.readLine())!=null){Matcher m=pat.matcher(line);if(!m.find())continue;String key=m.group(1).toLowerCase(Locale.US),val=m.group(2);if(!key.contains("batt")&&!key.contains("power")&&!key.contains("fuel")&&!key.contains("capacity")&&!key.contains("qmax")&&!key.contains("fcc"))continue;if(!isCapacityKey(key,design))continue;long uah=normalizeCapacity(numberFromObject(val));if(isPlausibleCapacity(uah))return new SourceValue(uah,"system property: "+m.group(1));}
+            while((line=br.readLine())!=null){Matcher m=pat.matcher(line);if(!m.find())continue;String key=m.group(1).toLowerCase(Locale.US),val=m.group(2);if(!key.contains("batt")&&!key.contains("power")&&!key.contains("fuel")&&!key.contains("capacity")&&!key.contains("qmax")&&!key.contains("fcc"))continue;if(!matchesCapacityKey(key,design))continue;long uah=normalizeCapacity(numberFromObject(val));if(isPlausibleCapacity(uah))return new SourceValue(uah,"system property: "+m.group(1));}
         }catch(Throwable ignored){} return new SourceValue(0,"Unavailable");
     }
+
+    // ---- key matching ---------------------------------------------------
+
+    /**
+     * Returns true when {@code rawKey} (a sysfs attribute name, an
+     * ACTION_BATTERY_CHANGED extra, or a system property) denotes the design
+     * capacity (design == true) or the currently usable full capacity.
+     */
+    private static boolean matchesCapacityKey(String rawKey,boolean design){
+        if(rawKey==null)return false;
+        String k=rawKey.toLowerCase(Locale.US);
+        if(k.startsWith("power_supply_"))k=k.substring("power_supply_".length());
+        if(k.isEmpty())return false;
+
+        // reject values that are not capacities
+        if(k.equals("capacity")||k.equals("level")||k.equals("name")||k.equals("present")||k.equals("status")
+                ||k.equals("health")||k.equals("technology")||k.equals("charge_type")
+                ||k.contains("percent")||k.contains("temperature")||k.contains("voltage")
+                ||k.contains("current")||k.contains("online")||k.contains("time_to"))return false;
+
+        if(design){
+            if(k.contains("design")&&(k.contains("cap")||k.contains("charge")||k.contains("energy")||k.contains("qmax")))return true;
+            if(k.contains("rated_capacity")||k.contains("nominal_capacity"))return true;
+            if(k.equals("battery_capacity")||k.equals("battery.capacity")||k.equals("totalbatterycapacity")||k.equals("total_battery_capacity"))return true;
+            if(k.contains("battery_capacity_design"))return true;
+            return false;
+        }
+        if(k.contains("design"))return false;   // design capacity is not the full capacity
+        return k.contains("charge_full")||k.contains("full_charge")||k.contains("fullcapacity")
+                ||k.contains("full_capacity")||k.equals("fcc")||k.endsWith("_fcc")||k.contains("qmax");
+    }
+
+    // ---- helpers --------------------------------------------------------
+
     private static long numberFromObject(Object o){
         if(o==null)return 0;
         try{
