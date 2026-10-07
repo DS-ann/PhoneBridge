@@ -50,7 +50,7 @@ public class BatteryNotificationService extends Service {
         double mah = SessionStore.getActiveMah(this);
         long screenOnMs = SessionStore.getActiveScreenOnMs(this);
         NotificationManager nm = (NotificationManager) getSystemService(NOTIFICATION_SERVICE);
-        if (nm != null) nm.notify(NOTIFICATION_ID, buildNotification(r.compact(), mah));
+        if (nm != null) nm.notify(NOTIFICATION_ID, buildNotification(r.compact(), mah, screenOnMs));
     }
 
     private Notification buildNotification(String text, double mah, long screenOnMs) {
@@ -65,7 +65,7 @@ public class BatteryNotificationService extends Service {
         b.setSmallIcon(android.R.drawable.ic_menu_info_details)
                 .setVisibility(Notification.VISIBILITY_PUBLIC)
                 .setContentTitle(String.format(Locale.US, "Battery  •  Used %.1f mAh", mah))
-                .setContentText(text)
+                .setContentText("Screen ON: " + SessionStore.formatDuration(screenOnMs) + "  •  " + text)
                 .setContentIntent(pi)
                 .setOngoing(true)
                 .setOnlyAlertOnce(true)
