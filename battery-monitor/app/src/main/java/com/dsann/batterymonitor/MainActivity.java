@@ -209,42 +209,47 @@ public class MainActivity extends Activity {
     }
     
     private LinearLayout buildHealth(){
-        LinearLayout r=new LinearLayout(this); r.setOrientation(LinearLayout.VERTICAL); r.setPadding(dp(16),dp(4),dp(16),dp(20));
-        TextView title=text("Battery health",22); title.setTypeface(Typeface.DEFAULT,Typeface.BOLD); title.setMaxLines(1); r.addView(title,full());
-        TextView sub=text("Measured fuel-gauge data • session-based estimates • source status",13); sub.setTextColor(0xFF9AA0AA); sub.setMaxLines(2); r.addView(sub,top(2));
+        LinearLayout r=new LinearLayout(this);
+        r.setOrientation(LinearLayout.VERTICAL);
+        r.setPadding(dp(16),dp(4),dp(16),dp(20));
 
-        LinearLayout summary=card(0xFF201B2B,0xFFB58CFF);
-        TextView big=text("--",30); big.setTypeface(Typeface.DEFAULT,Typeface.BOLD); big.setTextColor(0xFFBFA5FF); big.setTag("health_big"); summary.addView(big,full());
-        TextView sm=text("Waiting for battery data",13); sm.setTextColor(0xFF9AA0AA); sm.setTag("health_summary"); summary.addView(sm,top(2));
-        r.addView(summary,top(12));
+        TextView title=text("Battery information",22);
+        title.setTypeface(Typeface.DEFAULT,Typeface.BOLD);
+        r.addView(title,full());
 
-        LinearLayout data=card(0xFF172334,0xFF63B3FF); data.setTag("health_data");
-        r.addView(data,top(10));
-        TextView q=sectionTitle("Measured battery data"); data.addView(q,full());
-        addHealthRow(data,"Full charge capacity","--","full");
-        addHealthRow(data,"Remaining charge counter","--","counter");
-        addHealthRow(data,"Design capacity","--","design");
-        addHealthRow(data,"Capacity ratio","--","ratio");
-        addHealthRow(data,"Raw health source","--","source");
-        addHealthRow(data,"Full-capacity source","--","fullsource");
-        addHealthRow(data,"Design-capacity source","--","designsource");
-        addHealthRow(data,"Source file","--","sourcepath");
-        addHealthRow(data,"Full energy","--","fullenergy");
-        addHealthRow(data,"Design energy","--","designenergy");
+        TextView sub=text("Non-root battery information exposed to ordinary applications",13);
+        sub.setTextColor(0xFF9AA0AA);
+        r.addView(sub,top(2));
 
-        LinearLayout est=card(0xFF17271F,0xFF63E6A8); est.setTag("health_est");
-        r.addView(est,top(10)); est.addView(sectionTitle("Session-based estimate"),full());
-        addHealthRow(est,"Estimated capacity","--","estcap"); addHealthRow(est,"Estimated health","--","esthealth");
-        addHealthRow(est,"Estimated wear","--","estwear"); addHealthRow(est,"Qualified sessions","--","qualified");
-        addHealthRow(est,"Qualification threshold","40% battery gain","threshold");
+        LinearLayout design=card(0xFF201B2B,0xFFB58CFF);
+        TextView label=text("Design capacity",12);
+        label.setTextColor(0xFF9AA0AA);
+        label.setTypeface(Typeface.DEFAULT,Typeface.BOLD);
+        design.addView(label,full());
 
-        LinearLayout model=card(0xFF211E18,0xFFFFC86B); model.addView(sectionTitle("Live / model data"),full());
-        addHealthRow(model,"Battery level","--","level"); addHealthRow(model,"Voltage","--","volt"); addHealthRow(model,"Current","--","current");
-        addHealthRow(model,"Wear model","Voltage-based estimate","model"); addHealthRow(model,"Last update","--","updated");
-        r.addView(model,top(10));
+        TextView value=text("--",30);
+        value.setTypeface(Typeface.DEFAULT,Typeface.BOLD);
+        value.setTextColor(0xFFBFA5FF);
+        value.setTag("design");
+        design.addView(value,top(5));
 
-        TextView note=text("Session health uses only charging sessions with at least 40 percentage points of battery gain. Up to the newest 8 valid sessions are used; a median-heavy estimate reduces the impact of noisy sessions. The voltage wear curve is an approximation, not AccuBattery's private algorithm.",11);
-        note.setTextColor(0xFF858D99); r.addView(note,top(12));
+        TextView source=text("Discovering battery capacity source…",12);
+        source.setTextColor(0xFF9AA0AA);
+        source.setTag("designsource");
+        design.addView(source,top(3));
+
+        r.addView(design,top(12));
+
+        LinearLayout details=card(0xFF172334,0xFF63B3FF);
+        details.addView(sectionTitle("Source"),full());
+        addHealthRow(details,"Design-capacity source","--","sourcepath");
+        addHealthRow(details,"Detection method","Non-root discovery","method");
+        r.addView(details,top(10));
+
+        TextView note=text("Only the design/rated battery capacity is shown here. Full charge capacity, remaining charge counter, energy values, session estimates, voltage, current, and wear/health calculations are intentionally removed from this tab.",11);
+        note.setTextColor(0xFF858D99);
+        r.addView(note,top(12));
+
         return r;
     }
 
@@ -263,49 +268,25 @@ public class MainActivity extends Activity {
     }
     private void refreshHealth(){
         if(healthView==null)return;
-        BatteryWearStore.update(this); BatteryWearStore.updateEstimatedHealth(this);
+        BatteryWearStore.update(this);
         BatteryWearStore.Snapshot w=BatteryWearStore.get(this);
-        TextView big=healthValue("health_big"), summary=healthValue("health_summary");
 
-        if(w.measuredCapacityAvailable()){
-            big.setText(String.format(java.util.Locale.US,"%.1f%% health",w.health));
-            summary.setText(String.format(java.util.Locale.US,"Measured • %.1f%% wear  •  %.0f / %.0f mAh",w.wear,w.fullCapacityMah(),w.designCapacityMah()));
-        }else if(w.measuredEnergyAvailable()){
-            big.setText(String.format(java.util.Locale.US,"%.1f%% health",w.health));
-            summary.setText(String.format(java.util.Locale.US,"Measured energy • %.1f%% wear  •  %.0f / %.0f mWh",w.wear,w.fullEnergyUwh/1000.0,w.designEnergyUwh/1000.0));
-        }else if(w.estimatedHealth>=0){
-            big.setText(String.format(java.util.Locale.US,"%.1f%% estimated",w.estimatedHealth));
-            summary.setText(String.format(java.util.Locale.US,"Estimated from %d qualified charging session%s • %.0f mAh",w.qualifiedSessions,w.qualifiedSessions==1?"":"s",w.estimatedCapacityMah()));
-        }else if(w.estimatedCapacityAvailable()){
-            big.setText(String.format(java.util.Locale.US,"~%.0f mAh",w.estimatedCapacityMah()));
-            summary.setText(String.format(java.util.Locale.US,"Estimated capacity • %d qualified charging session%s • measured capacity unavailable",w.qualifiedSessions,w.qualifiedSessions==1?"":"s"));
+        TextView design=healthValue("design");
+        TextView source=healthValue("designsource");
+        TextView sourcePath=healthValue("sourcepath");
+        TextView method=healthValue("method");
+
+        if(w.designUah>0){
+            design.setText(String.format(java.util.Locale.US,"%.0f mAh",w.designCapacityMah()));
+            source.setText(w.designSource);
+            sourcePath.setText(w.designSource);
+            method.setText("Normal app / non-root discovery");
         }else{
-            big.setText("--");
-            summary.setText("No measured or session-based capacity available yet");
+            design.setText("Unavailable");
+            source.setText("No readable design-capacity source");
+            sourcePath.setText("Checked Android battery broadcast, readable sysfs battery nodes, and normal system properties");
+            method.setText("Normal app / non-root discovery");
         }
-
-        healthValue("full").setText(w.fullUah>0?String.format(java.util.Locale.US,"%.0f mAh",w.fullCapacityMah()):"Unavailable");
-        long counterUah=BatteryWearStore.getChargeCounterUah(this);
-        healthValue("counter").setText(counterUah>0?String.format(java.util.Locale.US,"%.0f mAh remaining",counterUah/1000.0):"Unavailable");
-        healthValue("design").setText(w.designUah>0?String.format(java.util.Locale.US,"%.0f mAh",w.designCapacityMah()):"Unavailable");
-        healthValue("ratio").setText(w.measuredCapacityAvailable()?String.format(java.util.Locale.US,"%.1f%%",w.fullCapacityMah()*100/w.designCapacityMah()):w.measuredEnergyAvailable()?String.format(java.util.Locale.US,"%.1f%%",w.fullEnergyUwh*100.0/w.designEnergyUwh):"Unavailable");
-        healthValue("source").setText(w.measuredCapacityAvailable()?"Capacity discovered":"No full/design capacity source");
-        healthValue("fullsource").setText(w.fullUah>0?w.fullSource:"Unavailable");
-        healthValue("designsource").setText(w.designUah>0?w.designSource:"Unavailable");
-        healthValue("sourcepath").setText(w.measuredEnergyAvailable()?w.fullEnergySource:"Non-root discovery: sysfs → battery broadcast → system properties");
-        healthValue("fullenergy").setText(w.fullEnergyUwh>0?String.format(java.util.Locale.US,"%.0f mWh",w.fullEnergyUwh/1000.0):"Unavailable");
-        healthValue("designenergy").setText(w.designEnergyUwh>0?String.format(java.util.Locale.US,"%.0f mWh",w.designEnergyUwh/1000.0):"Unavailable");
-        healthValue("estcap").setText(w.estimatedCapacityAvailable()?String.format(java.util.Locale.US,"~%.0f mAh",w.estimatedCapacityMah()):"Need a 40%+ session");
-        healthValue("esthealth").setText(w.estimatedHealth>=0?String.format(java.util.Locale.US,"%.1f%%",w.estimatedHealth):w.estimatedCapacityAvailable()?"No design capacity source":"Need more data");
-        healthValue("estwear").setText(w.estimatedWear>=0?String.format(java.util.Locale.US,"%.1f%%",w.estimatedWear):w.estimatedCapacityAvailable()?"No design capacity source":"Need more data");
-        healthValue("qualified").setText(String.valueOf(w.qualifiedSessions));
-
-        BatteryReader.Reading br=BatteryReader.read(this);
-        int level=getBatteryPercent();
-        healthValue("level").setText(level>=0?String.valueOf(level)+"%":"Unavailable");
-        healthValue("volt").setText(br.voltageText());
-        healthValue("current").setText(br.currentText());
-        healthValue("updated").setText(w.updated>0?new java.text.SimpleDateFormat("dd MMM, HH:mm:ss",java.util.Locale.US).format(new java.util.Date(w.updated)):"--");
     }
     private int getBatteryPercent(){Intent i=registerReceiver(null,new android.content.IntentFilter(Intent.ACTION_BATTERY_CHANGED));if(i==null)return -1;int l=i.getIntExtra(android.os.BatteryManager.EXTRA_LEVEL,-1),s=i.getIntExtra(android.os.BatteryManager.EXTRA_SCALE,100);return l<0?-1:Math.round(l*100f/s);}
 
