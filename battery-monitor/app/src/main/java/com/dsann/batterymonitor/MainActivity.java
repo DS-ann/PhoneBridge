@@ -92,6 +92,7 @@ public class MainActivity extends Activity {
         healthTab.setOnClickListener(v->showTab(2));
         
         setContentView(root);
+        if (notificationSwitch.isChecked()) startNotificationService();
         root.setFocusableInTouchMode(true);
         root.requestFocus();
     }
