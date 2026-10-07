@@ -287,7 +287,7 @@ public class MainActivity extends Activity {
         healthValue("counter").setText(counterUah>0?String.format(java.util.Locale.US,"%.0f mAh remaining",counterUah/1000.0):"Unavailable");
         healthValue("design").setText(w.designUah>0?String.format(java.util.Locale.US,"%.0f mAh",w.designCapacityMah()):"Unavailable");
         healthValue("ratio").setText(w.measuredCapacityAvailable()?String.format(java.util.Locale.US,"%.1f%%",w.fullCapacityMah()*100/w.designCapacityMah()):w.measuredEnergyAvailable()?String.format(java.util.Locale.US,"%.1f%%",w.fullEnergyUwh*100.0/w.designEnergyUwh):"Unavailable");
-        healthValue("source").setText(w.measuredCapacityAvailable()?"Measured • charge_full":w.measuredEnergyAvailable()?"Measured • energy_full / energy_full_design":counterUah>0?"Remaining charge counter available":"Unavailable");
+        healthValue("source").setText(w.measuredCapacityAvailable()?"Readable sysfs • charge_full":w.measuredEnergyAvailable()?"Readable sysfs • energy_full / energy_full_design":counterUah>0?"Android BatteryManager • charge counter":"Unavailable");
         healthValue("sourcepath").setText(w.measuredCapacityAvailable()?w.fullSource:w.measuredEnergyAvailable()?w.fullEnergySource:"Unavailable");
         healthValue("fullenergy").setText(w.fullEnergyUwh>0?String.format(java.util.Locale.US,"%.0f mWh",w.fullEnergyUwh/1000.0):"Unavailable");
         healthValue("designenergy").setText(w.designEnergyUwh>0?String.format(java.util.Locale.US,"%.0f mWh",w.designEnergyUwh/1000.0):"Unavailable");
