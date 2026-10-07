@@ -51,11 +51,12 @@ public class BatteryNotificationService extends Service {
         BatteryWearStore.updateEstimatedHealth(this);
         BatteryWearStore.Snapshot wear = BatteryWearStore.get(this);
         double mah = SessionStore.getActiveMah(this);
+        long screenOnMs = SessionStore.getActiveScreenOnMs(this);
         NotificationManager nm = (NotificationManager) getSystemService(NOTIFICATION_SERVICE);
-        if (nm != null) nm.notify(NOTIFICATION_ID, buildNotification(r.compact(), mah, wear));
+        if (nm != null) nm.notify(NOTIFICATION_ID, buildNotification(r.compact(), mah, wear, screenOnMs));
     }
 
-    private Notification buildNotification(String text, double mah, BatteryWearStore.Snapshot wear) {
+    private Notification buildNotification(String text, double mah, BatteryWearStore.Snapshot wear, long screenOnMs) {
         Intent open = new Intent(this, MainActivity.class);
         int flags = PendingIntent.FLAG_UPDATE_CURRENT;
         if (Build.VERSION.SDK_INT >= 23) flags |= PendingIntent.FLAG_IMMUTABLE;
@@ -72,7 +73,7 @@ public class BatteryNotificationService extends Service {
         b.setSmallIcon(android.R.drawable.ic_menu_info_details)
                 .setVisibility(Notification.VISIBILITY_PUBLIC)
                 .setContentTitle(String.format(Locale.US, "Battery  •  Used %.1f mAh%s", mah, wearText))
-                .setContentText(text)
+                .setContentText("Screen ON: " + SessionStore.formatDuration(screenOnMs) + "  •  " + text)
                 .setContentIntent(pi)
                 .setOngoing(true)
                 .setOnlyAlertOnce(true)
