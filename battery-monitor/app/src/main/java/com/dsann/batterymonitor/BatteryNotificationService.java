@@ -87,7 +87,8 @@ public class BatteryNotificationService extends Service {
 
     @Override public void onDestroy() {
         handler.removeCallbacks(updater);
-        SessionStore.finish(this);
+        // Do not finish the session here. Android/MIUI may destroy and recreate the
+        // foreground service temporarily; the persisted session must survive that gap.
         stopForeground(true);
         super.onDestroy();
     }
