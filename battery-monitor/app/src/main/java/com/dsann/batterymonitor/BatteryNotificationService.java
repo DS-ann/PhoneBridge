@@ -27,7 +27,7 @@ public class BatteryNotificationService extends Service {
     @Override public void onCreate() {
         super.onCreate();
         createChannel();
-        startForeground(NOTIFICATION_ID, buildNotification("Reading battery...", 0.0, null));
+        startForeground(NOTIFICATION_ID, buildNotification("Reading battery...", 0.0, null, 0));
         updateNotification();
         handler.postDelayed(updater, getSamplingInterval());
     }
