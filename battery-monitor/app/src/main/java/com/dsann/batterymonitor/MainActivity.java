@@ -226,6 +226,8 @@ public class MainActivity extends Activity {
         addHealthRow(data,"Design capacity","--","design");
         addHealthRow(data,"Capacity ratio","--","ratio");
         addHealthRow(data,"Raw health source","--","source");
+        addHealthRow(data,"Full-capacity source","--","fullsource");
+        addHealthRow(data,"Design-capacity source","--","designsource");
         addHealthRow(data,"Source file","--","sourcepath");
         addHealthRow(data,"Full energy","--","fullenergy");
         addHealthRow(data,"Design energy","--","designenergy");
@@ -287,8 +289,10 @@ public class MainActivity extends Activity {
         healthValue("counter").setText(counterUah>0?String.format(java.util.Locale.US,"%.0f mAh remaining",counterUah/1000.0):"Unavailable");
         healthValue("design").setText(w.designUah>0?String.format(java.util.Locale.US,"%.0f mAh",w.designCapacityMah()):"Unavailable");
         healthValue("ratio").setText(w.measuredCapacityAvailable()?String.format(java.util.Locale.US,"%.1f%%",w.fullCapacityMah()*100/w.designCapacityMah()):w.measuredEnergyAvailable()?String.format(java.util.Locale.US,"%.1f%%",w.fullEnergyUwh*100.0/w.designEnergyUwh):"Unavailable");
-        healthValue("source").setText(w.measuredCapacityAvailable()?"Readable sysfs • charge_full":w.measuredEnergyAvailable()?"Readable sysfs • energy_full / energy_full_design":counterUah>0?"Android BatteryManager • charge counter":"Unavailable");
-        healthValue("sourcepath").setText(w.measuredCapacityAvailable()?w.fullSource:w.measuredEnergyAvailable()?w.fullEnergySource:"Unavailable");
+        healthValue("source").setText(w.measuredCapacityAvailable()?"Capacity discovered":"No full/design capacity source");
+        healthValue("fullsource").setText(w.fullUah>0?w.fullSource:"Unavailable");
+        healthValue("designsource").setText(w.designUah>0?w.designSource:"Unavailable");
+        healthValue("sourcepath").setText(w.measuredEnergyAvailable()?w.fullEnergySource:"Non-root discovery: sysfs → battery broadcast → system properties");
         healthValue("fullenergy").setText(w.fullEnergyUwh>0?String.format(java.util.Locale.US,"%.0f mWh",w.fullEnergyUwh/1000.0):"Unavailable");
         healthValue("designenergy").setText(w.designEnergyUwh>0?String.format(java.util.Locale.US,"%.0f mWh",w.designEnergyUwh/1000.0):"Unavailable");
         healthValue("estcap").setText(w.estimatedCapacityAvailable()?String.format(java.util.Locale.US,"~%.0f mAh",w.estimatedCapacityMah()):"Need a 40%+ session");
