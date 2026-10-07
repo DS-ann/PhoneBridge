@@ -27,7 +27,7 @@ public class BatteryNotificationService extends Service {
     @Override public void onCreate() {
         super.onCreate();
         createChannel();
-        startForeground(NOTIFICATION_ID, buildNotification("Reading battery...", 0.0));
+        startForeground(NOTIFICATION_ID, buildNotification("Reading battery...", 0.0, 0));
         updateNotification();
         handler.postDelayed(updater, getSamplingInterval());
     }
@@ -48,11 +48,12 @@ public class BatteryNotificationService extends Service {
         BatteryReader.Reading r = BatteryReader.read(this);
         SessionStore.sample(this, r);
         double mah = SessionStore.getActiveMah(this);
+        long screenOnMs = SessionStore.getActiveScreenOnMs(this);
         NotificationManager nm = (NotificationManager) getSystemService(NOTIFICATION_SERVICE);
         if (nm != null) nm.notify(NOTIFICATION_ID, buildNotification(r.compact(), mah));
     }
 
-    private Notification buildNotification(String text, double mah) {
+    private Notification buildNotification(String text, double mah, long screenOnMs) {
         Intent open = new Intent(this, MainActivity.class);
         int flags = PendingIntent.FLAG_UPDATE_CURRENT;
         if (Build.VERSION.SDK_INT >= 23) flags |= PendingIntent.FLAG_IMMUTABLE;
