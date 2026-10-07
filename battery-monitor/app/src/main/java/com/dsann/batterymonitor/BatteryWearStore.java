@@ -3,11 +3,16 @@ package com.dsann.batterymonitor;
 import android.content.Context;
 import android.content.Intent;
 import android.os.BatteryManager;
+import android.os.Bundle;
 import java.io.BufferedReader;
 import java.io.File;
 import java.io.FileReader;
+import java.io.InputStreamReader;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.Locale;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 final class BatteryWearStore {
     private static final String PREFS="battery_wear";
@@ -22,13 +27,14 @@ final class BatteryWearStore {
     private BatteryWearStore(){}
 
     static synchronized void update(Context c){
-        long rawFull=firstReadable("charge_full"),rawDesign=firstReadable("charge_full_design");
-        long full=normalizeCapacity(rawFull),design=normalizeCapacity(rawDesign);
+        SourceValue fullSourceValue=discoverCapacity(c,false);
+        SourceValue designSourceValue=discoverCapacity(c,true);
+        long full=fullSourceValue.value,design=designSourceValue.value;
         long fullEnergy=firstReadable("energy_full"),designEnergy=firstReadable("energy_full_design");
         long chargeCounter=readBatteryManagerChargeCounter(c);
         android.content.SharedPreferences.Editor e=c.getSharedPreferences(PREFS,Context.MODE_PRIVATE).edit();
-        if(full>0)e.putLong(KEY_FULL,full).putString(KEY_FULL_SOURCE,fullSource());
-        if(design>0)e.putLong(KEY_DESIGN,design).putString(KEY_DESIGN_SOURCE,designSource());
+        if(full>0)e.putLong(KEY_FULL,full).putString(KEY_FULL_SOURCE,fullSourceValue.source);
+        if(design>0)e.putLong(KEY_DESIGN,design).putString(KEY_DESIGN_SOURCE,designSourceValue.source);
         if(fullEnergy>0)e.putLong(KEY_FULL_ENERGY,fullEnergy).putString(KEY_FULL_ENERGY_SOURCE,fullEnergySource());
         if(designEnergy>0)e.putLong(KEY_DESIGN_ENERGY,designEnergy).putString(KEY_DESIGN_ENERGY_SOURCE,designEnergySource());
         if(chargeCounter>0)e.putLong(KEY_CHARGE_COUNTER,chargeCounter);
@@ -44,7 +50,7 @@ final class BatteryWearStore {
     }
 
     static synchronized void updateEstimatedHealth(Context c){
-        long design=normalizeCapacity(firstReadable("charge_full_design"));
+        long design=discoverCapacity(c,true).value;
         ArrayList<SessionStore.Record> q=new ArrayList<>();
         for(SessionStore.Record r:SessionStore.getRecords(c)){
             if(!r.charging)continue;
@@ -108,8 +114,8 @@ final class BatteryWearStore {
                 p.getString(KEY_FULL_ENERGY_SOURCE,"Unavailable"),p.getString(KEY_DESIGN_ENERGY_SOURCE,"Unavailable"));
     }
     static boolean isCharging(Context c){Intent i=c.registerReceiver(null,new android.content.IntentFilter(Intent.ACTION_BATTERY_CHANGED));return i!=null&&i.getIntExtra(BatteryManager.EXTRA_PLUGGED,0)!=0;}
-    static long getFullUah(){return normalizeCapacity(firstReadable("charge_full"));}
-    static long getDesignUah(){return normalizeCapacity(firstReadable("charge_full_design"));}
+    static long getFullUah(){return discoverCapacity(null,false).value;}
+    static long getDesignUah(){return discoverCapacity(null,true).value;}
     static long getChargeCounterUah(Context c){
         long v=readBatteryManagerChargeCounter(c);
         return v>0?v:c.getSharedPreferences(PREFS,Context.MODE_PRIVATE).getLong(KEY_CHARGE_COUNTER,0);
@@ -131,14 +137,55 @@ final class BatteryWearStore {
             return level>=0&&scale>0?Math.round(level*100f/scale):-1;
         }catch(Exception ignored){return -1;}
     }
-    static String fullSource(){return firstReadableSource("charge_full");}
-    static String designSource(){return firstReadableSource("charge_full_design");}
+    static String fullSource(){return discoverCapacity(null,false).source;}
+    static String designSource(){return discoverCapacity(null,true).source;}
     static String fullEnergySource(){return firstReadableSource("energy_full");}
     static String designEnergySource(){return firstReadableSource("energy_full_design");}
+
+    private static SourceValue discoverCapacity(Context c,boolean design){
+        SourceValue v=discoverFromSysfs(design);
+        if(v.value>0)return v;
+        if(c!=null){v=discoverFromBatteryIntent(c,design);if(v.value>0)return v;}
+        v=discoverFromProperties(design);if(v.value>0)return v;
+        return new SourceValue(0,"Unavailable");
+    }
+
+    private static SourceValue discoverFromSysfs(boolean design){
+        String[] roots={"/sys/class/power_supply","/sys/devices/virtual/power_supply","/sys/devices/platform"};
+        String[] preferred=design?new String[]{"charge_full_design","battery_design_capacity","design_capacity","capacity_design","fg_design_capacity","rated_capacity","nominal_capacity","qmax"}:new String[]{"charge_full","full_charge_capacity","full_capacity","battery_full_capacity","fg_full_capacity","fcc","qmax"};
+        for(String root:roots){SourceValue v=scanTree(new File(root),preferred,0,new int[]{0});if(v.value>0)return v;}
+        return new SourceValue(0,"Unavailable");
+    }
+    private static SourceValue scanTree(File dir,String[] names,int depth,int[] count){
+        if(dir==null||depth>5||count[0]>6000||!dir.isDirectory()||!dir.canRead())return new SourceValue(0,"Unavailable");
+        File[] files=dir.listFiles();if(files==null)return new SourceValue(0,"Unavailable");
+        for(File f:files){count[0]++;if(f.isFile()&&f.canRead()){String n=f.getName().toLowerCase(Locale.US);for(String wanted:names){if(n.equals(wanted)||n.contains(wanted)){long raw=readNumeric(f);long uah=normalizeCapacity(raw);if(isPlausibleCapacity(uah))return new SourceValue(uah,f.getAbsolutePath());}}}}
+        for(File f:files)if(f.isDirectory()){SourceValue v=scanTree(f,names,depth+1,count);if(v.value>0)return v;}
+        return new SourceValue(0,"Unavailable");
+    }
+    private static SourceValue discoverFromBatteryIntent(Context c,boolean design){
+        try{Intent i=c.registerReceiver(null,new android.content.IntentFilter(Intent.ACTION_BATTERY_CHANGED));if(i==null)return new SourceValue(0,"Unavailable");Bundle b=i.getExtras();if(b==null)return new SourceValue(0,"Unavailable");
+            for(String key:b.keySet()){String k=key.toLowerCase(Locale.US);if(!isCapacityKey(k,design))continue;Object o=b.get(key);long raw=numberFromObject(o);long uah=normalizeCapacity(raw);if(isPlausibleCapacity(uah))return new SourceValue(uah,"Android ACTION_BATTERY_CHANGED extra: "+key);}
+        }catch(Throwable ignored){} return new SourceValue(0,"Unavailable");
+    }
+    private static boolean isCapacityKey(String k,boolean design){
+        if(k.equals("capacity")||k.equals("level")||k.contains("percent")||k.contains("temperature")||k.contains("voltage")||k.contains("current"))return false;
+        if(design)return k.contains("design")&&k.contains("cap")||k.contains("rated_capacity")||k.contains("nominal_capacity")||k.contains("design_capacity")||k.contains("qmax");
+        return k.contains("charge_full")||k.contains("full_charge")||k.contains("fullcapacity")||k.contains("full_capacity")||k.endsWith("fcc")||k.equals("fcc")||k.contains("qmax");
+    }
+    private static SourceValue discoverFromProperties(boolean design){
+        try{Process p=Runtime.getRuntime().exec(new String[]{"/system/bin/getprop"});BufferedReader br=new BufferedReader(new InputStreamReader(p.getInputStream()));String line;Pattern pat=Pattern.compile("\\\\[([^]]+)\\\\]\\\\s*:\\\\s*\\\\[([^]]*)\\\\]");
+            while((line=br.readLine())!=null){Matcher m=pat.matcher(line);if(!m.find())continue;String key=m.group(1).toLowerCase(Locale.US),val=m.group(2);if(!key.contains("batt")&&!key.contains("power")&&!key.contains("fuel")&&!key.contains("capacity")&&!key.contains("qmax")&&!key.contains("fcc"))continue;if(!isCapacityKey(key,design))continue;long uah=normalizeCapacity(numberFromObject(val));if(isPlausibleCapacity(uah))return new SourceValue(uah,"system property: "+m.group(1));}
+        }catch(Throwable ignored){} return new SourceValue(0,"Unavailable");
+    }
+    private static long numberFromObject(Object o){if(o==null)return 0;try{if(o instanceof Number)return ((Number)o).longValue();String s=String.valueOf(o).trim();if(s.isEmpty())return 0;return Long.parseLong(s);}catch(Exception e){return 0;}}
+    private static long readNumeric(File f){try(BufferedReader br=new BufferedReader(new FileReader(f))){return numberFromObject(br.readLine());}catch(Exception e){return 0;}}
+    private static boolean isPlausibleCapacity(long uah){return uah>=500000&&uah<=30000000;}
     private static long firstReadable(String name){File root=new File(POWER_SUPPLY_ROOT);File[] dirs=root.listFiles();if(dirs==null)return 0;for(File dir:dirs){if(!dir.isDirectory())continue;long v=readRaw(new File(dir,name).getAbsolutePath());if(v>0)return v;}return 0;}
     private static String firstReadableSource(String name){File root=new File(POWER_SUPPLY_ROOT);File[] dirs=root.listFiles();if(dirs==null)return "Unavailable";for(File dir:dirs){if(!dir.isDirectory())continue;File f=new File(dir,name);if(readRaw(f.getAbsolutePath())>0)return f.getAbsolutePath();}return "Unavailable";}
-    private static long readRaw(String path){File f=new File(path);if(!f.isFile()||!f.canRead())return 0;try(BufferedReader br=new BufferedReader(new FileReader(f))){String s=br.readLine();return s==null?0:Long.parseLong(s.trim());}catch(Exception e){return 0;}}
+    private static long readRaw(String path){File f=new File(path);if(!f.isFile()||!f.canRead())return 0;try(BufferedReader br=new BufferedReader(new FileReader(f))){String s=br.readLine();return s==null?0:numberFromObject(s.trim());}catch(Exception e){return 0;}}
     private static long normalizeCapacity(long v){return v>0&&v<100000?v*1000:v;}
+    private static final class SourceValue{final long value;final String source;SourceValue(long v,String s){value=v;source=s;}}
     private static double clamp(double v,double lo,double hi){return Math.max(lo,Math.min(hi,v));}
 
     static final class Snapshot{
