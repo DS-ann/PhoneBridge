@@ -34,6 +34,7 @@ public class MainActivity extends Activity {
     private View monitorContainer;
     private TextView monitorTab,historyTab,healthTab;
     private LinearLayout healthView;
+    private ScrollView healthScroll;
     private TextView healthLevel,healthStatus,healthTemp,healthVoltage,healthCurrent,healthSource,healthFullCharge,healthRemaining,healthDesign,healthRatio,healthRaw,healthFile,healthFullEnergy,healthDesignEnergy;
     private final Runnable updater=new Runnable(){public void run(){updateValues();handler.postDelayed(this,1000);}};
     
@@ -72,13 +73,19 @@ public class MainActivity extends Activity {
         ((ScrollView)monitorContainer).setFillViewport(true);
         ((ScrollView)monitorContainer).addView(monitorView);
         historyView=buildHistory();
-        healthView=buildHealth();
+        LinearLayout healthContent=buildHealth();
+        healthScroll=new ScrollView(this);
+        healthScroll.setFillViewport(true);
+        healthScroll.setClipToPadding(false);
+        healthScroll.setPadding(0,0,0,dp(8));
+        healthScroll.addView(healthContent);
+        healthView=healthContent;
         
         root.addView(monitorContainer,new LinearLayout.LayoutParams(-1,0,1));
         root.addView(historyView,new LinearLayout.LayoutParams(-1,0,1));
-        root.addView(healthView,new LinearLayout.LayoutParams(-1,0,1));
+        root.addView(healthScroll,new LinearLayout.LayoutParams(-1,0,1));
         historyView.setVisibility(View.GONE);
-        healthView.setVisibility(View.GONE);
+        healthScroll.setVisibility(View.GONE);
         selectTab(0);
         monitorTab.setOnClickListener(v->showTab(0));
         historyTab.setOnClickListener(v->showTab(1));
@@ -256,7 +263,7 @@ public class MainActivity extends Activity {
         TextView v=text(value,17); v.setTypeface(Typeface.DEFAULT,Typeface.BOLD); c.setTag(v); c.addView(v,top(5)); return c;
     }
     private void showTab(int index){
-        monitorContainer.setVisibility(index==0?View.VISIBLE:View.GONE); historyView.setVisibility(index==1?View.VISIBLE:View.GONE); healthView.setVisibility(index==2?View.VISIBLE:View.GONE);
+        monitorContainer.setVisibility(index==0?View.VISIBLE:View.GONE); historyView.setVisibility(index==1?View.VISIBLE:View.GONE); healthScroll.setVisibility(index==2?View.VISIBLE:View.GONE);
         selectTab(index); handler.removeCallbacks(historyUpdater);
         if(index==1){refreshHistory();handler.postDelayed(historyUpdater,10000);} else if(index==2) refreshHealth();
     }
