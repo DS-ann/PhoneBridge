@@ -35,7 +35,7 @@ public class MainActivity extends Activity {
     private TextView monitorTab,historyTab,healthTab;
     private LinearLayout healthView;
     private ScrollView healthScroll;
-    private TextView healthLevel,healthStatus,healthTemp,healthVoltage,healthCurrent,healthSource,healthFullCharge,healthRemaining,healthDesign,healthRatio,healthRaw,healthFile,healthFullEnergy,healthDesignEnergy;
+    private TextView healthLevel,healthStatus,healthTemp,healthVoltage,healthCurrent,healthSource,healthFullCharge,healthRemaining,healthDesign,healthRatio,healthRaw,healthFile,healthFullEnergy,healthDesignEnergy,healthSessionEstimate,healthSessionHealth;
     private final Runnable updater=new Runnable(){public void run(){updateValues();handler.postDelayed(this,1000);}};
     
     @Override protected void onCreate(Bundle state){
@@ -231,6 +231,8 @@ public class MainActivity extends Activity {
         addHealthField(r,"Source file","healthFile");
         addHealthField(r,"Full energy","healthFullEnergy");
         addHealthField(r,"Design energy","healthDesignEnergy");
+        addHealthField(r,"Session-based capacity estimate (≥40% charge)","healthSessionEstimate");
+        addHealthField(r,"Session-based health estimate","healthSessionHealth");
         LinearLayout row1=new LinearLayout(this);
         LinearLayout voltageCard=infoCard("VOLTAGE","--"); healthVoltage=(TextView)voltageCard.getTag();
         LinearLayout tempCard=infoCard("TEMPERATURE","--"); healthTemp=(TextView)tempCard.getTag();
@@ -245,7 +247,16 @@ public class MainActivity extends Activity {
         return r;
     }
     private void addHealthField(LinearLayout parent,String label,String key){
-        LinearLayout c=card(Color.WHITE);
+        int bgColor=0xFFFFFFFF;
+        if("healthFullCharge".equals(key)) bgColor=0xFFEAF4FF;
+        else if("healthRemaining".equals(key)) bgColor=0xFFEAFBF2;
+        else if("healthDesign".equals(key)) bgColor=0xFFFFF6E5;
+        else if("healthRatio".equals(key)) bgColor=0xFFF3ECFF;
+        else if("healthRaw".equals(key)) bgColor=0xFFFFEEF2;
+        else if("healthFile".equals(key)) bgColor=0xFFEDF4F7;
+        else if("healthFullEnergy".equals(key)||"healthDesignEnergy".equals(key)) bgColor=0xFFF0F7FF;
+        else if("healthSessionEstimate".equals(key)||"healthSessionHealth".equals(key)) bgColor=0xFFEFF8EE;
+        LinearLayout c=card(bgColor);
         TextView l=text(label,11); l.setTypeface(Typeface.DEFAULT,Typeface.BOLD); l.setTextColor(0xFF777777); c.addView(l,full());
         TextView v=text("Unavailable",16); v.setTypeface(Typeface.DEFAULT,Typeface.BOLD); c.addView(v,top(4));
         if("healthFullCharge".equals(key)) healthFullCharge=v;
@@ -256,6 +267,8 @@ public class MainActivity extends Activity {
         else if("healthFile".equals(key)) healthFile=v;
         else if("healthFullEnergy".equals(key)) healthFullEnergy=v;
         else if("healthDesignEnergy".equals(key)) healthDesignEnergy=v;
+        else if("healthSessionEstimate".equals(key)) healthSessionEstimate=v;
+        else if("healthSessionHealth".equals(key)) healthSessionHealth=v;
         parent.addView(c,top(7));
     }
     private LinearLayout infoCard(String label,String value){
@@ -283,11 +296,41 @@ public class MainActivity extends Activity {
             healthRatio.setText(Double.isNaN(d.ratio)?"Unavailable":String.format(java.util.Locale.US,"%.1f %%",d.ratio));
             healthRaw.setText(d.rawHealth==null?"Unavailable":d.rawHealth); healthFile.setText(d.sourceFile);
             healthFullEnergy.setText(d.energy(d.fullEnergyUWh)); healthDesignEnergy.setText(d.energy(d.designEnergyUWh));
+            SessionEstimate est=estimateFromSessions();
+            healthSessionEstimate.setText(est.capacityMah>0?String.format(java.util.Locale.US,"%.0f mAh",est.capacityMah):"Unavailable");
+            healthSessionHealth.setText(est.health>0?String.format(java.util.Locale.US,"%.1f %%  •  %d qualifying sessions",est.health,est.count):"Unavailable");
         }catch(Throwable ignored){
             healthLevel.setText("--"); healthStatus.setText("Status: unavailable"); healthVoltage.setText("N/A"); healthTemp.setText("N/A"); healthCurrent.setText("N/A"); healthSource.setText("Unavailable");
-            healthFullCharge.setText("Unavailable"); healthRemaining.setText("Unavailable"); healthDesign.setText("Unavailable"); healthRatio.setText("Unavailable"); healthRaw.setText("Unavailable"); healthFile.setText("Unavailable"); healthFullEnergy.setText("Unavailable"); healthDesignEnergy.setText("Unavailable");
+            healthFullCharge.setText("Unavailable"); healthRemaining.setText("Unavailable"); healthDesign.setText("Unavailable"); healthRatio.setText("Unavailable"); healthRaw.setText("Unavailable"); healthFile.setText("Unavailable"); healthFullEnergy.setText("Unavailable"); healthDesignEnergy.setText("Unavailable"); healthSessionEstimate.setText("Unavailable"); healthSessionHealth.setText("Unavailable");
         }
     }
+    private SessionEstimate estimateFromSessions(){
+        ArrayList<SessionStore.Record> records=SessionStore.getRecords(this);
+        double weightedCapacity=0;
+        double totalWeight=0;
+        int count=0;
+        for(SessionStore.Record rec:records){
+            if(!rec.charging || rec.startPercent<0 || rec.endPercent<0) continue;
+            int delta=rec.endPercent-rec.startPercent;
+            if(delta<40 || rec.mah<=0) continue;
+            double capacity=rec.mah*100.0/delta;
+            if(capacity<1500 || capacity>6000) continue;
+            double weight=Math.min(delta,100);
+            weightedCapacity+=capacity*weight;
+            totalWeight+=weight;
+            count++;
+        }
+        if(totalWeight<=0) return new SessionEstimate(-1, -1, 0);
+        double cap=weightedCapacity/totalWeight;
+        return new SessionEstimate(cap,cap*100.0/4050.0,count);
+    }
+
+    private static final class SessionEstimate{
+        final double capacityMah,health;
+        final int count;
+        SessionEstimate(double c,double h,int n){capacityMah=c;health=h;count=n;}
+    }
+
     private LinearLayout buildHistory(){
         LinearLayout r=new LinearLayout(this);
         r.setOrientation(LinearLayout.VERTICAL);
