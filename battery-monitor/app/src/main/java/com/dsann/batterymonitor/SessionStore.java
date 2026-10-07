@@ -18,8 +18,12 @@ final class SessionStore {
             KEY_ON_MIN="on_min", KEY_ON_MAX="on_max", KEY_ON_START_PERCENT="on_start_percent",
             KEY_ON_END_PERCENT="on_end_percent", KEY_OFF_MS="off_ms", KEY_OFF_MAH="off_mah",
             KEY_OFF_MIN="off_min", KEY_OFF_MAX="off_max", KEY_OFF_START_PERCENT="off_start_percent",
+            KEY_LAST_CURRENT="last_current",
             KEY_OFF_END_PERCENT="off_end_percent";
     private static final long MAX_GAP=10*60*1000L;
+    // A session may remain open across a longer outage, but we must never
+    // assume the previous current reading was valid for an unknown interval.
+    private static final long MAX_INTEGRATION_GAP=2*60*1000L;
     private SessionStore(){}
 
     static synchronized void sample(Context c, BatteryReader.Reading r){
@@ -34,6 +38,7 @@ final class SessionStore {
         boolean oldScreen=p.getBoolean(KEY_SCREEN_ON,screenOn);
         double mah=readDouble(p,KEY_MAH,0);
         double currentMa=r.currentUa/1000.0;
+        double previousCurrentMa=readDouble(p,KEY_LAST_CURRENT,Double.NaN);
         double minCurrent=readDouble(p,KEY_MIN_CURRENT,Double.NaN);
         double maxCurrent=readDouble(p,KEY_MAX_CURRENT,Double.NaN);
         int startPercent=p.getInt(KEY_START_PERCENT,-1);
@@ -54,6 +59,7 @@ final class SessionStore {
             }
             start=last=now;
             mah=0;
+            previousCurrentMa=Double.NaN;
             minCurrent=maxCurrent=currentMa;
             startPercent=percent;
             oldScreen=screenOn;
@@ -63,15 +69,21 @@ final class SessionStore {
             if (screenOn) onStartPercent=percent; else offStartPercent=percent;
         } else {
             long elapsed=Math.max(0,now-last);
-            double segmentMah=Math.abs(currentMa)*(elapsed/3600000.0);
-            mah+=segmentMah;
-            if(oldScreen){
+            // Integrate only intervals for which we have sufficiently recent samples.
+            // Use the trapezoidal rule so the interval is based on both endpoints,
+            // rather than assuming the newest current held for the whole interval.
+            boolean integrate=elapsed<=MAX_INTEGRATION_GAP && !Double.isNaN(previousCurrentMa);
+            double segmentMah=integrate
+                    ? ((Math.abs(previousCurrentMa)+Math.abs(currentMa))/2.0)*(elapsed/3600000.0)
+                    : 0.0;
+            if(integrate) mah+=segmentMah;
+            if(integrate && oldScreen){
                 onMs+=elapsed; onMah+=segmentMah;
                 if(Double.isNaN(onMin)){onMin=onMax=currentMa;onStartPercent=lastPercent;}
                 if(Math.abs(currentMa)<Math.abs(onMin))onMin=currentMa;
                 if(Math.abs(currentMa)>Math.abs(onMax))onMax=currentMa;
                 if(percent>=0)onEndPercent=percent;
-            }else{
+            }else if(integrate){
                 offMs+=elapsed; offMah+=segmentMah;
                 if(Double.isNaN(offMin)){offMin=offMax=currentMa;offStartPercent=lastPercent;}
                 if(Math.abs(currentMa)<Math.abs(offMin))offMin=currentMa;
@@ -85,12 +97,14 @@ final class SessionStore {
                 if(Math.abs(currentMa)>Math.abs(maxCurrent))maxCurrent=currentMa;
             }
         }
+        previousCurrentMa=currentMa;
         if(percent>=0)lastPercent=percent;
         if(oldScreen!=screenOn && percent>=0){
             if(screenOn)onStartPercent=percent; else offStartPercent=percent;
         }
 
         p.edit().putLong(KEY_START,start).putLong(KEY_LAST,last)
+                .putLong(KEY_LAST_CURRENT,Double.doubleToLongBits(previousCurrentMa))
                 .putLong(KEY_MAH,Double.doubleToLongBits(mah))
                 .putLong(KEY_MIN_CURRENT,Double.doubleToLongBits(minCurrent))
                 .putLong(KEY_MAX_CURRENT,Double.doubleToLongBits(maxCurrent))
@@ -119,7 +133,7 @@ final class SessionStore {
                 p.getInt(KEY_ON_START_PERCENT,-1),p.getInt(KEY_ON_END_PERCENT,-1),
                 p.getLong(KEY_OFF_MS,0),readDouble(p,KEY_OFF_MAH,0),readDouble(p,KEY_OFF_MIN,Double.NaN),readDouble(p,KEY_OFF_MAX,Double.NaN),
                 p.getInt(KEY_OFF_START_PERCENT,-1),p.getInt(KEY_OFF_END_PERCENT,-1));
-        p.edit().remove(KEY_START).remove(KEY_LAST).remove(KEY_MAH).remove(KEY_MIN_CURRENT).remove(KEY_MAX_CURRENT)
+        p.edit().remove(KEY_START).remove(KEY_LAST).remove(KEY_LAST_CURRENT).remove(KEY_MAH).remove(KEY_MIN_CURRENT).remove(KEY_MAX_CURRENT)
                 .remove(KEY_START_PERCENT).remove(KEY_LAST_PERCENT).remove(KEY_CHARGING).remove(KEY_SCREEN_ON)
                 .remove(KEY_ON_MS).remove(KEY_ON_MAH).remove(KEY_ON_MIN).remove(KEY_ON_MAX).remove(KEY_ON_START_PERCENT).remove(KEY_ON_END_PERCENT)
                 .remove(KEY_OFF_MS).remove(KEY_OFF_MAH).remove(KEY_OFF_MIN).remove(KEY_OFF_MAX).remove(KEY_OFF_START_PERCENT).remove(KEY_OFF_END_PERCENT).apply();
