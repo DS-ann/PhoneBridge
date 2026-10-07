@@ -387,7 +387,7 @@ public class MainActivity extends Activity {
         ArrayList<SessionStore.Record> rs=SessionStore.getRecords(this);
         if(rs.isEmpty()){
             TextView empty=text("No sessions yet",16);
-            empty.setTextColor(0xFF777777);
+            empty.setTextColor(0xFF8E96A3);
             historyList.addView(empty,top(24));
             return;
         }
@@ -402,7 +402,7 @@ public class MainActivity extends Activity {
             String currentRange=Double.isNaN(rec.minCurrent)?"Current: --":"Current: min "+formatSigned(rec.minCurrent)+" mA  •  max "+formatSigned(rec.maxCurrent)+" mA";
             String percentRange=(rec.startPercent>=0&&rec.endPercent>=0)?"Battery: "+rec.startPercent+"% → "+rec.endPercent+"%  ("+String.format(java.util.Locale.US,"%+d%%",rec.endPercent-rec.startPercent)+")":"Battery: --";
             TextView overall=text("Overall",12);
-            overall.setTextColor(0xFF777777);
+            overall.setTextColor(0xFF8E96A3);
             card.addView(overall,top(12));
             card.addView(text(currentRange,13),top(3));
             card.addView(text(percentRange,13),top(3));
@@ -414,7 +414,7 @@ public class MainActivity extends Activity {
             addScreenDetails(expanded,"Screen OFF",rec.offMs,rec.offMah,rec.offMin,rec.offMax,rec.offStartPercent,rec.offEndPercent);
             card.addView(expanded,top(10));
             TextView hint=text("Tap for screen details",11);
-            hint.setTextColor(0xFF888888);
+            hint.setTextColor(0xFF858D99);
             card.addView(hint,top(8));
             card.setOnClickListener(v->{
                 boolean show=expanded.getVisibility()!=View.VISIBLE;
@@ -433,7 +433,7 @@ public class MainActivity extends Activity {
         parent.addView(heading,top(4));
         if(ms<=0&&mah<=0){
             TextView none=text("No samples",12);
-            none.setTextColor(0xFF888888);
+            none.setTextColor(0xFF858D99);
             parent.addView(none,top(2));
             return;
         }
@@ -464,25 +464,30 @@ public class MainActivity extends Activity {
         t.setTypeface(Typeface.DEFAULT,Typeface.BOLD);
         c.addView(t,full());
         TextView s=text(subtitle,12);
-        s.setTextColor(0xFF707070);
+        s.setTextColor(0xFF9AA0AA);
         c.addView(s,top(2));
         return c;
     }
     
     private LinearLayout card(){return card(Color.WHITE);}
 
-    private LinearLayout card(int color){ return card(color,0xFF303744); }
-
-    private LinearLayout card(int color,int strokeColor){
+    private LinearLayout card(int color){
         LinearLayout c=new LinearLayout(this);
         c.setOrientation(LinearLayout.VERTICAL);
         c.setPadding(dp(14),dp(13),dp(14),dp(13));
         GradientDrawable bg=new GradientDrawable();
-        bg.setColor(color);
+        bg.setColor(color == Color.WHITE ? 0xFF171A20 : color);
         bg.setCornerRadius(dp(14));
-        bg.setStroke(dp(1),strokeColor);
+        bg.setStroke(dp(1),0xFF303744);
         c.setBackground(bg);
         if(Build.VERSION.SDK_INT>=21)c.setElevation(dp(1));
+        return c;
+    }
+
+    private LinearLayout card(int color,int strokeColor){
+        LinearLayout c=card(color);
+        GradientDrawable bg=(GradientDrawable)c.getBackground();
+        bg.setStroke(dp(1),strokeColor);
         return c;
     }
     
@@ -501,9 +506,17 @@ public class MainActivity extends Activity {
         return v;
     }
     
-    private void selectTab(int index){
-        TextView[] ts={monitorTab,historyTab,healthTab};
-        for(int i=0;i<ts.length;i++){boolean selected=i==index; ts[i].setTextColor(selected?0xFF111111:0xFF777777); ts[i].setBackground(round(selected?0xFFE7E7EA:0x00000000,12));}
+    private void selectTab(int selected){
+        TextView[] tabs={monitorTab,historyTab,healthTab};
+        int[] activeText={0xFF7CC7FF,0xFFB58CFF,0xFF63E6A8};
+        int[] activeBg={0xFF172334,0xFF211B2D,0xFF17271F};
+        for(int i=0;i<tabs.length;i++){
+            boolean active=i==selected;
+            tabs[i].setTextColor(active?activeText[i]:0xFF8E96A3);
+            tabs[i].setBackground(round(active?activeBg[i]:0x00000000,12));
+            tabs[i].setMinHeight(dp(48));
+            tabs[i].setContentDescription(tabs[i].getText()+" tab"+(active?", selected":""));
+        }
     }
     
     private GradientDrawable round(int color,int radius){
@@ -516,7 +529,7 @@ public class MainActivity extends Activity {
     private String formatSigned(double value){return String.format(java.util.Locale.US,"%+.1f",value);}
     private int indexForInterval(long ms){int best=0;long diff=Math.abs(INTERVALS_MS[0]-ms);for(int i=1;i<INTERVALS_MS.length;i++){long d=Math.abs(INTERVALS_MS[i]-ms);if(d<diff){diff=d;best=i;}}return best;}
     private void startNotificationService(){Intent i=new Intent(this,BatteryNotificationService.class);if(Build.VERSION.SDK_INT>=26)startForegroundService(i);else startService(i);}
-    private TextView text(String s,int size){TextView v=new TextView(this);v.setText(s);v.setTextSize(size);v.setTextColor(0xFF202124);return v;}
+    private TextView text(String s,int size){TextView v=new TextView(this);v.setText(s);v.setTextSize(size);v.setTextColor(0xFFE8EBF0);return v;}
     private LinearLayout.LayoutParams full(){return new LinearLayout.LayoutParams(-1,-2);}
     private LinearLayout.LayoutParams top(int n){LinearLayout.LayoutParams p=full();p.topMargin=dp(n);return p;}
     private int dp(int n){return Math.round(n*getResources().getDisplayMetrics().density);}
