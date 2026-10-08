@@ -20,7 +20,9 @@ final class SessionStore {
             KEY_OFF_MIN="off_min", KEY_OFF_MAX="off_max", KEY_OFF_START_PERCENT="off_start_percent",
             KEY_LAST_CURRENT="last_current",
             KEY_OFF_END_PERCENT="off_end_percent";
-    // Keep a session across normal service gaps/restarts. 2h is the\n    // session-continuity boundary; longer gaps start a new session.\n    private static final long MAX_GAP=2*60*60*1000L;
+    // Keep a session across normal service gaps/restarts. 2h is the
+    // session-continuity boundary; longer gaps start a new session.
+    private static final long MAX_GAP=2*60*60*1000L;
     // A session may remain open across a longer outage, but we must never
     // assume the previous current reading was valid for an unknown interval.
     private static final long MAX_INTEGRATION_GAP=2*60*1000L;
