@@ -183,7 +183,7 @@ public class MainActivity extends Activity {
                 } else {
                     startNotificationService();
                 }
-            }else stopService(new Intent(this,BatteryNotificationService.class));
+            }else { SessionStore.finish(this); stopService(new Intent(this,BatteryNotificationService.class)); }
         });
         return r;
     }
