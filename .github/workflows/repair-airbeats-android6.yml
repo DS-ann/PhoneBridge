@@ -162,6 +162,23 @@ jobs:
           print('Rebuilt DEX files:', ', '.join(dexes))
           PY
 
+      - name: Report remaining Android 7+ API references
+        shell: bash
+        run: |
+          set -euo pipefail
+          report=output/api24-reference-report.txt
+          {
+            echo "Known Android 7+ framework references remaining after compatibility patch:"
+            if grep -R -n -E 'Landroid/os/UserManager;->isUserUnlocked|Landroid/content/Context;->(isDeviceProtectedStorage|createDeviceProtectedStorageContext)|Landroid/app/NotificationManager;->areNotificationsEnabled' work/dex --include='*.smali'; then
+              true
+            else
+              echo "None of the specifically checked references remain."
+            fi
+            echo
+            echo "This is a targeted diagnostic, not a complete API-level verifier."
+          } > "$report"
+          cat "$report"
+
       - name: Align and sign repaired APK
         run: |
           set -euo pipefail
