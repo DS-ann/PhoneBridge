@@ -49,7 +49,19 @@ jobs:
             </dependencies>
           </project>
           POM
-          mvn -B -f tools/pom.xml dependency:build-classpath -Dmdep.outputFile="$GITHUB_WORKSPACE/tools/classpath.txt"
+          # Maven Central occasionally returns transient 403/metadata failures.
+          # Retry cleanly instead of failing the whole repair on the first outage.
+          for attempt in 1 2 3 4; do
+            if mvn -B -U -Dmaven.wagon.http.retryHandler.count=5 -f tools/pom.xml dependency:build-classpath -Dmdep.outputFile="$GITHUB_WORKSPACE/tools/classpath.txt"; then
+              break
+            fi
+            if [ "$attempt" -eq 4 ]; then
+              echo "Could not resolve DEX dependencies after $attempt attempts." >&2
+              exit 1
+            fi
+            find "$HOME/.m2/repository" -name '*.lastUpdated' -delete || true
+            sleep $((attempt * 10))
+          done
           test -s tools/classpath.txt
 
       - name: Download and validate source APK
