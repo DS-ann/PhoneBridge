@@ -36,8 +36,8 @@ jobs:
           # Replace zipalign with a Linux ARM64 build before invoking it on this runner.
           curl -fsSL https://raw.githubusercontent.com/Commit451/android-arm-build-tools/main/install.sh -o /tmp/install-arm-build-tools.sh
           bash /tmp/install-arm-build-tools.sh --version 35.0.1 --sdk "$ANDROID_HOME"
-          file "$ANDROID_HOME/build-tools/35.0.1/zipalign"
-          "$ANDROID_HOME/build-tools/35.0.1/zipalign" -h >/dev/null
+          file "$ANDROID_HOME/build-tools/35.0.1/zipalign" | tee output/zipalign-binary-info.txt
+          grep -q "ARM aarch64" output/zipalign-binary-info.txt
 
       - name: Resolve DEX tools and dependencies
         run: |
