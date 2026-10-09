@@ -217,6 +217,52 @@ jobs:
             java -cp "$(cat tools/classpath.txt)" org.jf.smali.Main assemble --api 23 -o "work/$dex" "$dir/smali"
           done < work/dex-list.txt
 
+      - name: Harden ART-crash exception handlers in reported classes
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p work/art-hardening
+          : > output/art-exception-handler-hardening.txt
+          while IFS= read -r dex; do
+            [[ -n "$dex" ]] || continue
+            name="${dex%.dex}"
+            dir="work/art-hardening/$name"
+            mkdir -p "$dir/smali"
+            java -cp "$(cat tools/classpath.txt)" org.jf.baksmali.Main disassemble --api 23 "work/$dex" -o "$dir/smali"
+            python3 - "$dir/smali" "$dex" <<'PY'
+          import pathlib, re, sys
+          root = pathlib.Path(sys.argv[1])
+          dex = sys.argv[2]
+          # These classes appeared in Android 6 ART's ResolveMethodExceptionHandlerTypes
+          # crash traces across repeated runs. Keep the handler blocks, but use the
+          # API-23-safe root exception type to avoid resolving incompatible obfuscated
+          # handler classes during old ART verification.
+          targets = {"a7/c.smali", "a2/e.smali", "o/t1.smali", "zf/e.smali"}
+          changed = 0
+          details = []
+          for path in root.rglob("*.smali"):
+              rel = path.relative_to(root).as_posix()
+              if rel not in targets:
+                  continue
+              src = path.read_text(encoding="utf-8", errors="replace")
+              def repl(m):
+                  nonlocal_dummy = None
+                  return ".catch Ljava/lang/Throwable; {"
+              out, n = re.subn(r"(?m)^([ \\t]*)\\.catch\\s+L[^;]+;(\\s+\\{)", lambda m: m.group(1) + ".catch Ljava/lang/Throwable;" + m.group(2), src)
+              if n:
+                  path.write_text(out, encoding="utf-8")
+                  changed += n
+                  details.append(f"{dex}:{rel}: broadened {n} typed catch handler(s) to Throwable")
+          with pathlib.Path("output/art-exception-handler-hardening.txt").open("a", encoding="utf-8") as f:
+              f.write(f"{dex}: changed_handlers={changed}\\n")
+              for line in details:
+                  f.write(line + "\\n")
+          print(f"{dex}: hardened {changed} catch handler(s)")
+          PY
+            java -cp "$(cat tools/classpath.txt)" org.jf.smali.Main assemble --api 23 -o "work/$dex" "$dir/smali"
+          done < work/dex-list.txt
+          sha256sum work/classes*.dex > output/hardened-dex-sha256.txt
+
       - name: Rebuild APK and validate DEX
         run: |
           set -euo pipefail
