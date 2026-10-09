@@ -342,7 +342,7 @@ jobs:
                   raise SystemExit("APK contains no DEX files")
               for dex in dexes:
                   data = z.read(dex)
-                  if not data.startswith(b"dex\\n035\\0"):
+                  if not data.startswith(b"dex\n035\0"):
                       raise SystemExit(f"{dex} is not DEX 035")
               native = sorted(n for n in names if n.startswith("lib/arm64-v8a/") and n.endswith(".so"))
               if not native:
