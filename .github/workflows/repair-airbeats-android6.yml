@@ -113,7 +113,12 @@ jobs:
                   # Blank lines and comments can occur between the invoke and
                   # move-result in disassembled source. Do not cross instructions.
                   j = i + 1
-                  while j < len(lines) and (not lines[j].strip() or lines[j].lstrip().startswith("#")):
+                  while j < len(lines) and (
+                      not lines[j].strip()
+                      or lines[j].lstrip().startswith(("#", "."))
+                  ):
+                      # Debug directives such as .line/.local do not emit DEX
+                      # instructions, so they may sit between invoke/result.
                       j += 1
                   if j >= len(lines):
                       raise SystemExit(f"Missing move-result after {kind} in {path}:{i+1}")
