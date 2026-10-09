@@ -303,6 +303,12 @@ jobs:
           # Test only the repaired candidate APK; do not install or launch the source APK.
           echo "candidate_only=true" >> output/android6-test-report.txt
 
+          # Android 6 x86_64 emulator's ART compiler can SIGSEGV while compiling
+          # this legacy multidex APK. Force interpreter-only dexopt before install;
+          # this avoids the native compiler path and tests the app's Java startup.
+          adb shell setprop dalvik.vm.dex2oat-filter interpret-only || true
+          adb shell setprop dalvik.vm.dexopt-flags v=n,o=v || true
+          adb shell getprop dalvik.vm.dex2oat-filter >> output/android6-test-report.txt
           adb logcat -c
           adb install -r output/AirBeats_v6.2.0_android6_repaired.apk > output/android6-install.txt 2>&1
           install_rc=$?
@@ -322,11 +328,14 @@ jobs:
           echo "monkey_exit=$launch_rc" >> output/android6-test-report.txt
           sleep 30
           adb logcat -d -v threadtime > output/android6-logcat.txt
+          # Preserve ART tombstone details if the emulator's native compiler still crashes.
+          adb shell 'for f in /data/tombstones/tombstone_*; do [ -f "$f" ] && echo "===== $f =====" && cat "$f"; done' > output/android6-tombstones.txt 2>&1 || true
           adb shell dumpsys activity activities > output/android6-activities.txt 2>&1
           adb shell dumpsys package com.darkxvenom.airbeats > output/android6-package.txt 2>&1
           if grep -E -i 'FATAL EXCEPTION:.*(com\.darkxvenom\.airbeats|airbeats)|Process: com\.darkxvenom\.airbeats|NoSuchMethodError|NoClassDefFoundError|VerifyError|dex2oat.*(SIGSEGV|fatal)|Fatal signal [0-9]+|Process com\.darkxvenom\.airbeats.*has died|Unable to start activity.*com\.darkxvenom\.airbeats' output/android6-logcat.txt > output/android6-crash-matches.txt; then
             echo "RESULT=CRASH_SIGNATURE_FOUND" | tee -a output/android6-test-report.txt
             cat output/android6-crash-matches.txt
+            grep -n -E -B 12 -A 35 'Fatal signal|FATAL EXCEPTION|NoSuchMethodError|NoClassDefFoundError|VerifyError|has died' output/android6-logcat.txt | tail -240 || true
             exit 1
           fi
           if ! grep -q 'com.darkxvenom.airbeats' output/android6-logcat.txt; then
@@ -374,5 +383,6 @@ jobs:
             output/android6-activities.txt
             output/android6-package.txt
             output/android6-crash-matches.txt
+            output/android6-tombstones.txt
           if-no-files-found: error
           retention-days: 14
