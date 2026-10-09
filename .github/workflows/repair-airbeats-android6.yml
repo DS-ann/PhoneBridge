@@ -100,29 +100,32 @@ jobs:
           dex_name = sys.argv[2]
           jar_path = pathlib.Path(sys.argv[3])
           with zipfile.ZipFile(jar_path) as jar:
-              available = set(jar.namelist())
+              platform = {n[:-6] for n in jar.namelist() if n.endswith(".class")}
+          defined = set()
           catches = []
-          target_catches = []
+          targets = []
           for path in root.rglob("*.smali"):
               rel = path.relative_to(root).as_posix()
-              text = path.read_text(encoding="utf-8", errors="replace")
-              for line_no, line in enumerate(text.splitlines(), 1):
+              source = path.read_text(encoding="utf-8", errors="replace")
+              cls = re.search(r"^\\.class\\s+[^\\n]*?\\s+(L[^;]+;)", source, re.M)
+              if cls:
+                  defined.add(cls.group(1)[1:-1])
+              if rel in ("a2/e.smali", "a7/c.smali") or rel.endswith("/a2/e.smali") or rel.endswith("/a7/c.smali"):
+                  targets.append(f"--- {dex_name}:{rel} ---")
+                  targets.extend(f"{i}: {line.strip()}" for i, line in enumerate(source.splitlines(), 1) if ".catch" in line or ".catchall" in line)
+              for line_no, line in enumerate(source.splitlines(), 1):
                   m = re.match(r"\\s*\\.catch\\s+(L[^;]+;)\\s+\\{", line)
-                  if not m:
-                      continue
-                  typ = m.group(1)
-                  entry = typ[1:-1] + ".class"
-                  if typ.startswith("Landroid/") and entry not in available:
-                      catches.append(f"{rel}:{line_no}: {typ}")
-                  if rel in ("a2/e.smali", "da/t.smali") or rel.endswith("/a2/e.smali") or rel.endswith("/da/t.smali"):
-                      target_catches.append(f"{rel}:{line_no}: {line.strip()}")
+                  if m:
+                      typ = m.group(1)
+                      if typ[1:-1] not in platform and typ[1:-1] not in defined:
+                          catches.append(f"{rel}:{line_no}: {typ} (not in this DEX or android-23.jar; may be in another DEX)")
           out = pathlib.Path("output/api23-catch-handler-diagnostics.txt")
           with out.open("a", encoding="utf-8") as f:
-              f.write(f"\\n[{dex_name}] framework catch types absent from android-23.jar: {len(catches)}\\n")
+              f.write(f"\\n[{dex_name}] catch types absent from this DEX + android-23.jar: {len(catches)}\\n")
               f.write("\\n".join(catches) + ("\\n" if catches else ""))
-              f.write(f"Catch directives in ART-reported classes (a2.e / da.t): {len(target_catches)}\\n")
-              f.write("\\n".join(target_catches) + ("\\n" if target_catches else ""))
-          print(f"{dex_name}: missing API23 Android catch types={len(catches)}; target class catch directives={len(target_catches)}")
+              f.write("\\nART-reported class catch directives:\\n")
+              f.write("\\n".join(targets) + ("\\n" if targets else ""))
+          print(f"{dex_name}: unresolved-in-this-DEX catch types={len(catches)}; ART target catch lines={len(targets)}")
           PY
 
             python3 - "$dir/smali" "$dex" <<'PY'
