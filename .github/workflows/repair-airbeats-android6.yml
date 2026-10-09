@@ -212,6 +212,7 @@ jobs:
           } > output/api24-reference-report.txt
 
       - name: Align, sign, and verify APK
+        id: sign
         run: |
           set -euo pipefail
           keytool -genkeypair -noprompt -keystore work/airbeats-repair.jks \
@@ -225,7 +226,64 @@ jobs:
           aapt dump badging output/AirBeats_v6.2.0_android6_repaired.apk > output/apk-badging.txt
           head -30 output/apk-badging.txt
 
+      - name: Run repaired APK on Android 6 (API 23) emulator
+        id: android6_test
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 23
+          target: default
+          arch: x86_64
+          profile: Nexus 6
+          emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim -camera-back none
+          disable-animations: true
+          emulator-boot-timeout: 600
+          script: |
+            set +e
+            mkdir -p output
+            echo "Android 6 emulator runtime test" > output/android6-test-report.txt
+            adb shell getprop ro.build.version.release >> output/android6-test-report.txt
+            adb shell getprop ro.build.version.sdk >> output/android6-test-report.txt
+            echo >> output/android6-test-report.txt
+
+            adb logcat -c
+            adb install -r output/AirBeats_v6.2.0_android6_repaired.apk > output/android6-install.txt 2>&1
+            install_rc=$?
+            cat output/android6-install.txt
+            if [ "$install_rc" -ne 0 ]; then
+              if grep -q "INSTALL_FAILED_NO_MATCHING_ABIS" output/android6-install.txt; then
+                echo "RESULT=ENVIRONMENT_ABI_MISMATCH: APK has no native ABI compatible with this API 23 x86_64 emulator." | tee -a output/android6-test-report.txt
+              else
+                echo "RESULT=INSTALL_FAILED (exit $install_rc)" | tee -a output/android6-test-report.txt
+              fi
+              exit 1
+            fi
+
+            echo "Install succeeded." | tee -a output/android6-test-report.txt
+            adb shell monkey -p com.darkxvenom.airbeats 1 > output/android6-launch.txt 2>&1
+            launch_rc=$?
+            cat output/android6-launch.txt
+            echo "monkey_exit=$launch_rc" >> output/android6-test-report.txt
+            sleep 30
+            adb logcat -d -v threadtime > output/android6-logcat.txt
+            adb shell dumpsys activity activities > output/android6-activities.txt 2>&1
+            adb shell dumpsys package com.darkxvenom.airbeats > output/android6-package.txt 2>&1
+
+            if grep -E -i 'FATAL EXCEPTION|NoSuchMethodError|NoClassDefFoundError|VerifyError|dex2oat.*(SIGSEGV|fatal)|Fatal signal [0-9]+|Unable to start activity' output/android6-logcat.txt > output/android6-crash-matches.txt; then
+              echo "RESULT=CRASH_SIGNATURE_FOUND" | tee -a output/android6-test-report.txt
+              cat output/android6-crash-matches.txt
+              exit 1
+            fi
+
+            if ! grep -q 'com.darkxvenom.airbeats' output/android6-logcat.txt; then
+              echo "RESULT=NO_APP_LOGS_FOUND; launch may not have reached the app." | tee -a output/android6-test-report.txt
+              exit 1
+            fi
+
+            echo "RESULT=NO_KNOWN_STARTUP_CRASH_SIGNATURE_IN_30_SECONDS" | tee -a output/android6-test-report.txt
+            echo "This is a smoke test, not proof that every app feature works." >> output/android6-test-report.txt
+
       - name: Upload repaired APK and diagnostics
+        if: always() && steps.sign.outcome == 'success'
         uses: actions/upload-artifact@v4
         with:
           name: AirBeats-Android6-repair-candidate
@@ -237,5 +295,12 @@ jobs:
             output/apk-badging.txt
             output/compatibility-patches.txt
             output/api24-reference-report.txt
+            output/android6-test-report.txt
+            output/android6-install.txt
+            output/android6-launch.txt
+            output/android6-logcat.txt
+            output/android6-activities.txt
+            output/android6-package.txt
+            output/android6-crash-matches.txt
           if-no-files-found: error
           retention-days: 14
