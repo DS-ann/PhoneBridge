@@ -110,17 +110,24 @@ jobs:
                       i += 1
                       continue
                   kind, match = hit
-                  if i + 1 >= len(lines):
+                  # Blank lines and comments can occur between the invoke and
+                  # move-result in disassembled source. Do not cross instructions.
+                  j = i + 1
+                  while j < len(lines) and (not lines[j].strip() or lines[j].lstrip().startswith("#")):
+                      j += 1
+                  if j >= len(lines):
                       raise SystemExit(f"Missing move-result after {kind} in {path}:{i+1}")
-                  result = result_re.match(lines[i+1])
+                  result = result_re.match(lines[j])
                   if result is None:
-                      raise SystemExit(f"Unexpected instruction after {kind} in {path}:{i+1}: {lines[i+1]}")
+                      raise SystemExit(f"Unexpected instruction after {kind} in {path}:{j+1}: {lines[j]}")
                   indent, result_kind, dest = result.groups()
+                  between = lines[i+1:j]
                   if kind in ("unlocked", "device_bool", "notifications"):
                       if result_kind != "move-result":
                           raise SystemExit(f"Expected move-result for {kind} in {path}:{i+1}")
                       value = "0x0" if kind == "device_bool" else "0x1"
                       out.append(f"{indent}const/4 {dest}, {value}")
+                      out.extend(between)
                       label = {
                           "unlocked": "UserManager.isUserUnlocked -> true",
                           "device_bool": "Context.isDeviceProtectedStorage -> false",
@@ -135,8 +142,9 @@ jobs:
                       receiver_text = match.group(1).split(",", 1)[0].strip()
                       receiver = receiver_text.split(" .. ", 1)[0].strip()
                       out.append("{}move-object {}, {}".format(indent, dest, receiver))
+                      out.extend(between)
                       counts["Context.createDeviceProtectedStorageContext -> same Context"] += 1
-                  i += 2
+                  i = j + 1
                   changed = True
               if changed:
                   path.write_text("\n".join(out) + "\n", encoding="utf-8")
