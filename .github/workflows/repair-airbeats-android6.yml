@@ -30,6 +30,7 @@ jobs:
 
       - name: Install Android build tools
         run: |
+          mkdir -p output
           sdkmanager "build-tools;35.0.1" "platform-tools" "platforms;android-23"
           echo "$ANDROID_HOME/build-tools/35.0.1" >> "$GITHUB_PATH"
           # Google ships native SDK build-tools binaries for x86_64 only.
