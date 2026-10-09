@@ -322,7 +322,7 @@ jobs:
           unzip -p output/AirBeats_v6.2.0_android6_repaired.apk AndroidManifest.xml > output/manifest-binary.xml
           test -s output/manifest-binary.xml
 
-      - name: Validate ARM64 APK without unavailable hosted emulator
+      - name: Validate ARM64 APK before runtime emulator test
         id: android6_test
         shell: bash
         run: |
@@ -353,9 +353,8 @@ jobs:
           {
             echo "RESULT=APK_BUILD_DEX_AND_SIGNATURE_VALID"
             echo "Target: Android 6 / API 23 / ARM64"
-            echo "Runtime launch test: NOT RUN"
-            echo "Reason: GitHub-hosted ARM64 runner does not provide a usable Android emulator package; the emulator action failed before device boot."
-            echo "Do not treat static validation as proof that the app launches."
+            echo "Runtime launch test: delegated to the macOS ARM64 emulator job."
+            echo "Static validation alone does not prove the app launches."
           } | tee output/android6-test-report.txt
 
       - name: Upload repaired APK and diagnostics
@@ -386,4 +385,92 @@ jobs:
             output/android6-crash-matches.txt
             output/android6-tombstones.txt
           if-no-files-found: error
+          retention-days: 14
+
+
+  runtime-test:
+    name: Android 6 API 23 ARM64 runtime test
+    needs: repair
+    runs-on: macos-15
+    timeout-minutes: 35
+    steps:
+      - name: Set up Android SDK and API 23 ARM64 system image
+        uses: android-actions/setup-android@v3
+        with:
+          packages: |
+            emulator
+            platform-tools
+            platforms;android-23
+            build-tools;35.0.1
+            system-images;android-23;google_apis;arm64-v8a
+
+      - name: Download repaired APK
+        uses: actions/download-artifact@v4
+        with:
+          name: AirBeats-Android6-repair-candidate
+          path: candidate
+
+      - name: Create and boot Android 6 ARM64 emulator
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "Host architecture: $(uname -m)"
+          test "$(uname -m)" = "arm64"
+          sdkmanager --list_installed | grep -E 'emulator|platform-tools|system-images;android-23;google_apis;arm64-v8a'
+          avdmanager create avd -n airbeats-api23-arm64 -k "system-images;android-23;google_apis;arm64-v8a" -d "Nexus 5" --force
+          nohup emulator -avd airbeats-api23-arm64 -no-window -no-audio -no-boot-anim -gpu swiftshader_indirect -no-snapshot-load -no-snapshot-save > emulator-startup.log 2>&1 &
+          echo $! > emulator.pid
+          adb wait-for-device
+          booted=0
+          for attempt in $(seq 1 90); do
+            state="$(adb shell getprop sys.boot_completed 2>/dev/null | tr -d '\r')"
+            if [ "$state" = "1" ]; then booted=1; break; fi
+            sleep 5
+          done
+          if [ "$booted" -ne 1 ]; then
+            echo "Android 6 ARM64 emulator did not finish booting."
+            tail -200 emulator-startup.log || true
+            exit 1
+          fi
+          adb shell getprop ro.build.version.sdk | grep -qx '23'
+          adb shell getprop ro.product.cpu.abi | grep -q 'arm64-v8a'
+          adb shell getprop | grep -E 'ro.build.version.release|ro.build.version.sdk|ro.product.cpu.abi'
+
+      - name: Install and launch AirBeats
+        id: launch
+        shell: bash
+        run: |
+          set -euo pipefail
+          APK="$(find candidate -type f -name 'AirBeats_v6.2.0_android6_repaired.apk' -print -quit)"
+          test -n "$APK"
+          test -s "$APK"
+          aapt dump badging "$APK" > package-badging.txt
+          PACKAGE="$(sed -n "s/^package: name='\\([^']*\\)'.*/\\1/p" package-badging.txt | head -1)"
+          test -n "$PACKAGE"
+          echo "Package ID: $PACKAGE"
+          adb install -r "$APK" 2>&1 | tee install-result.txt
+          adb shell monkey -p "$PACKAGE" 1 2>&1 | tee launch-result.txt
+          sleep 20
+          adb logcat -d -v time > android6-logcat.txt
+          if grep -E -i 'FATAL EXCEPTION|Fatal signal [0-9]+|NoSuchMethodError.*isUserUnlocked|Unable to start activity' android6-logcat.txt; then
+            echo "Detected an app startup crash in logcat."
+            exit 1
+          fi
+          echo "RESULT=ANDROID_6_API_23_ARM64_INSTALL_AND_LAUNCH_NO_FATAL_CRASH"
+          echo "Package: $PACKAGE"
+          echo "SDK: $(adb shell getprop ro.build.version.sdk | tr -d '\r')"
+          echo "ABI: $(adb shell getprop ro.product.cpu.abi | tr -d '\r')"
+
+      - name: Upload emulator logs and runtime-test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: AirBeats-Android6-ARM64-runtime-test
+          path: |
+            emulator-startup.log
+            package-badging.txt
+            install-result.txt
+            launch-result.txt
+            android6-logcat.txt
+          if-no-files-found: warn
           retention-days: 14
