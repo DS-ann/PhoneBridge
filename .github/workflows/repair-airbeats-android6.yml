@@ -1,0 +1,158 @@
+name: Repair AirBeats for Android 6
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  repair:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Set up Android build tools
+        uses: android-actions/setup-android@v3
+
+      - name: Install build tools
+        run: |
+          sdkmanager "build-tools;35.0.0" "platform-tools"
+          echo "$ANDROID_HOME/build-tools/35.0.0" >> "$GITHUB_PATH"
+
+      - name: Download DEX tools
+        run: |
+          mkdir -p tools input work output
+          curl -fL --retry 3 -o tools/baksmali.jar https://repo1.maven.org/maven2/org/smali/baksmali/2.5.2/baksmali-2.5.2.jar
+          curl -fL --retry 3 -o tools/smali.jar https://repo1.maven.org/maven2/org/smali/smali/2.5.2/smali-2.5.2.jar
+
+      - name: Download the committed AirBeats APK
+        run: |
+          curl -fL --retry 3 \
+            "https://raw.githubusercontent.com/DS-ann/PhoneBridge/main/AirBeats_v6.2.0_android6_api23_fixed.apk" \
+            -o input/AirBeats-original.apk
+          test -s input/AirBeats-original.apk
+          sha256sum input/AirBeats-original.apk | tee output/source-sha256.txt
+          unzip -t input/AirBeats-original.apk
+
+      - name: Normalize DEX and patch API-24 UserManager call
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p work/dex
+          unzip -Z1 input/AirBeats-original.apk | grep -E '^classes([0-9]+)?\.dex$' | sort -V > work/dex-list.txt
+          test -s work/dex-list.txt
+          : > output/dex-report.txt
+          patched_total=0
+
+          while IFS= read -r dex; do
+            [[ -n "$dex" ]] || continue
+            name="${dex%.dex}"
+            dir="work/dex/$name"
+            mkdir -p "$dir"
+            unzip -p input/AirBeats-original.apk "$dex" > "$dir/input.dex"
+            magic="$(head -c 8 "$dir/input.dex" | od -An -tc | tr -d ' \n')"
+            printf '%s magic=%s bytes=%s\n' "$dex" "$magic" "$(stat -c%s "$dir/input.dex")" | tee -a output/dex-report.txt
+            mkdir -p "$dir/smali"
+            java -jar tools/baksmali.jar disassemble --api 23 "$dir/input.dex" -o "$dir/smali"
+
+            python3 - "$dir/smali" <<'PY'
+          import pathlib, re, sys
+          root = pathlib.Path(sys.argv[1])
+          count = 0
+          # In DEX, move-result must immediately follow the invoke. Replace that
+          # pair with const/4 of the same destination register (true = 1).
+          invoke = re.compile(r'^\s*invoke-virtual(?:/range)?\s+\{[^}]*\},\s*Landroid/os/UserManager;->isUserUnlocked\(\)Z\s*(?:#.*)?$')
+          move_result = re.compile(r'^(\s*)move-result\s+(v\d+|p\d+)\s*(?:#.*)?$')
+          for path in root.rglob('*.smali'):
+              lines = path.read_text(encoding='utf-8').splitlines()
+              out = []
+              i = 0
+              changed = False
+              while i < len(lines):
+                  if invoke.match(lines[i]):
+                      if i + 1 >= len(lines):
+                          raise SystemExit(f'No move-result after isUserUnlocked in {path}:{i+1}')
+                      m = move_result.match(lines[i+1])
+                      if not m:
+                          raise SystemExit(f'Unexpected instruction after isUserUnlocked in {path}:{i+1}')
+                      out.append(f'{m.group(1)}const/4 {m.group(2)}, 0x1')
+                      i += 2
+                      count += 1
+                      changed = True
+                  else:
+                      out.append(lines[i])
+                      i += 1
+              if changed:
+                  path.write_text('\n'.join(out) + '\n', encoding='utf-8')
+          print(count)
+          PY
+            # Count occurrences in the decoded tree and add to summary.
+            # Python output above is the per-DEX replacement count.
+            count=$(grep -R -E 'Landroid/os/UserManager;->isUserUnlocked\(\)Z' "$dir/smali" --include='*.smali' | wc -l || true)
+            if [[ "$count" -ne 0 ]]; then
+              echo "ERROR: unpatched isUserUnlocked reference remains in $dex" | tee -a output/dex-report.txt
+              exit 1
+            fi
+            java -jar tools/smali.jar assemble --api 23 "$dir/smali" -o "work/$dex"
+          done < work/dex-list.txt
+
+          # Rebuild APK, replacing only DEX entries. All resources and manifest
+          # remain byte-for-byte from the original archive.
+          python3 - <<'PY'
+          import pathlib, subprocess, zipfile
+          src = pathlib.Path('input/AirBeats-original.apk')
+          dest = pathlib.Path('work/AirBeats-rebuilt-unsigned.apk')
+          dexes = [x.strip() for x in pathlib.Path('work/dex-list.txt').read_text().splitlines() if x.strip()]
+          with zipfile.ZipFile(src, 'r') as zin, zipfile.ZipFile(dest, 'w') as zout:
+              for item in zin.infolist():
+                  if item.filename in dexes:
+                      data = pathlib.Path('work', item.filename).read_bytes()
+                      zout.writestr(item, data)
+                  else:
+                      zout.writestr(item, zin.read(item.filename))
+          with zipfile.ZipFile(dest) as z:
+              bad = z.testzip()
+              if bad:
+                  raise SystemExit(f'Bad ZIP entry after rebuild: {bad}')
+              for dex in dexes:
+                  data = z.read(dex)
+                  if not data.startswith(b'dex\n035\0'):
+                      raise SystemExit(f'{dex} did not assemble as DEX 035: {data[:8]!r}')
+          print('Rebuilt DEX files:', ', '.join(dexes))
+          PY
+
+      - name: Align and sign repaired APK
+        run: |
+          set -euo pipefail
+          keytool -genkeypair -noprompt -keystore work/airbeats-repair.jks \
+            -storepass repairpass -keypass repairpass -alias repair \
+            -dname "CN=AirBeats Android 6 compatibility repair" -keyalg RSA -keysize 2048 -validity 10000
+          zipalign -f -p 4 work/AirBeats-rebuilt-unsigned.apk output/AirBeats_v6.2.0_android6_repaired-aligned.apk
+          apksigner sign --ks work/airbeats-repair.jks --ks-pass pass:repairpass \
+            --key-pass pass:repairpass --out output/AirBeats_v6.2.0_android6_repaired.apk \
+            output/AirBeats_v6.2.0_android6_repaired-aligned.apk
+          apksigner verify --verbose output/AirBeats_v6.2.0_android6_repaired.apk
+          sha256sum output/AirBeats_v6.2.0_android6_repaired.apk | tee output/repaired-sha256.txt
+          aapt dump badging output/AirBeats_v6.2.0_android6_repaired.apk | head -30 | tee output/apk-badging.txt
+
+      - name: Upload repaired APK and diagnostics
+        uses: actions/upload-artifact@v4
+        with:
+          name: AirBeats-Android6-repair-candidate
+          path: |
+            output/AirBeats_v6.2.0_android6_repaired.apk
+            output/dex-report.txt
+            output/source-sha256.txt
+            output/repaired-sha256.txt
+            output/apk-badging.txt
+          if-no-files-found: error
+          retention-days: 14
