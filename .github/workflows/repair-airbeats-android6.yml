@@ -245,18 +245,15 @@ jobs:
               if rel not in targets:
                   continue
               src = path.read_text(encoding="utf-8", errors="replace")
-              def repl(m):
-                  nonlocal_dummy = None
-                  return ".catch Ljava/lang/Throwable; {"
-              out, n = re.subn(r"(?m)^([ \\t]*)\\.catch\\s+L[^;]+;(\\s+\\{)", lambda m: m.group(1) + ".catch Ljava/lang/Throwable;" + m.group(2), src)
+              out, n = re.subn(r"(?m)^([ \t]*)\.catch\s+L[^;]+;(\s+\{)", lambda m: m.group(1) + ".catch Ljava/lang/Throwable;" + m.group(2), src)
               if n:
                   path.write_text(out, encoding="utf-8")
                   changed += n
                   details.append(f"{dex}:{rel}: broadened {n} typed catch handler(s) to Throwable")
           with pathlib.Path("output/art-exception-handler-hardening.txt").open("a", encoding="utf-8") as f:
-              f.write(f"{dex}: changed_handlers={changed}\\n")
+              f.write(f"{dex}: changed_handlers={changed}\n")
               for line in details:
-                  f.write(line + "\\n")
+                  f.write(line + "\n")
           print(f"{dex}: hardened {changed} catch handler(s)")
           PY
             java -cp "$(cat tools/classpath.txt)" org.jf.smali.Main assemble --api 23 -o "work/$dex" "$dir/smali"
