@@ -217,51 +217,19 @@ jobs:
             java -cp "$(cat tools/classpath.txt)" org.jf.smali.Main assemble --api 23 -o "work/$dex" "$dir/smali"
           done < work/dex-list.txt
 
-      - name: Patch ART crash-site exception handlers for Android 6
+      - name: Preserve API-23-assembled DEX files
         shell: bash
         run: |
           set -euo pipefail
-          mkdir -p work/art-hardening
-          : > output/art-exception-handler-hardening.txt
+          # The earlier catch-type rewrite made dexlib2 fail while writing
+          # La/a;->b(...) with handler offset 74626 (> the DEX ushort limit).
+          # Keep the already successfully assembled API-23 DEX files intact.
           while IFS= read -r dex; do
             [[ -n "$dex" ]] || continue
-            name="\${dex%.dex}"
-            dir="work/art-hardening/$name"
-            mkdir -p "$dir/smali"
-            java -cp "$(cat tools/classpath.txt)" org.jf.baksmali.Main disassemble --api 23 "work/$dex" -o "$dir/smali"
-            python3 - "$dir/smali" "$dex" <<'PY'
-          import pathlib, re, sys
-          root = pathlib.Path(sys.argv[1])
-          dex = sys.argv[2]
-          # Keep the patch narrow. Broadly replacing hundreds of catch types
-          # makes some already-large DEX files unassemblable. The API-23 ART
-          # crash trace repeatedly identifies these exact obfuscated classes.
-          targets = {"a7/c.smali", "a2/e.smali", "o/t1.smali", "zf/e.smali"}
-          changed = 0
-          details = []
-          pat = re.compile(r"(?m)^([ \t]*)\.catch\s+L[^;]+;(\s+\{)")
-          for path in root.rglob("*.smali"):
-              rel = path.relative_to(root).as_posix()
-              if rel not in targets:
-                  continue
-              src = path.read_text(encoding="utf-8", errors="replace")
-              out, n = pat.subn(
-                  lambda m: m.group(1) + ".catch Ljava/lang/Throwable;" + m.group(2),
-                  src
-              )
-              if n:
-                  path.write_text(out, encoding="utf-8")
-                  changed += n
-                  details.append(f"{dex}:{rel}: rewrote {n} catch handler(s)")
-          with pathlib.Path("output/art-exception-handler-hardening.txt").open("a", encoding="utf-8") as f:
-              f.write(f"{dex}: targeted_handlers_rewritten={changed}\n")
-              for line in details:
-                  f.write(line + "\n")
-          print(f"{dex}: rewrote {changed} targeted catch handler(s)")
-          PY
-            java -cp "$(cat tools/classpath.txt)" org.jf.smali.Main assemble --api 23 -o "work/$dex" "$dir/smali"
-          done < work/dex-list.txt
-          sha256sum work/classes*.dex > output/hardened-dex-sha256.txt
+            test -s "work/$dex"
+            printf '%s ' "$dex"
+            sha256sum "work/$dex"
+          done < work/dex-list.txt | tee output/hardened-dex-sha256.txt
 
       - name: Rebuild APK and validate DEX
         run: |
