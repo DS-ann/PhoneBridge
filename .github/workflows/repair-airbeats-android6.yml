@@ -33,13 +33,24 @@ jobs:
           sdkmanager "build-tools;35.0.0" "platform-tools"
           echo "$ANDROID_HOME/build-tools/35.0.0" >> "$GITHUB_PATH"
 
-      - name: Download DEX tools
+      - name: Resolve DEX tools and dependencies
         run: |
+          set -euo pipefail
           mkdir -p tools input work output
-          curl -fL --retry 3 -o tools/baksmali.jar https://repo1.maven.org/maven2/org/smali/baksmali/2.5.2/baksmali-2.5.2.jar
-          curl -fL --retry 3 -o tools/smali.jar https://repo1.maven.org/maven2/org/smali/smali/2.5.2/smali-2.5.2.jar
-          test -s tools/baksmali.jar
-          test -s tools/smali.jar
+          cat > tools/pom.xml <<'POM'
+          <project xmlns="http://maven.apache.org/POM/4.0.0">
+            <modelVersion>4.0.0</modelVersion>
+            <groupId>local.airbeats.repair</groupId>
+            <artifactId>dex-tools</artifactId>
+            <version>1.0</version>
+            <dependencies>
+              <dependency><groupId>org.smali</groupId><artifactId>baksmali</artifactId><version>2.5.2</version></dependency>
+              <dependency><groupId>org.smali</groupId><artifactId>smali</artifactId><version>2.5.2</version></dependency>
+            </dependencies>
+          </project>
+          POM
+          mvn -B -f tools/pom.xml dependency:build-classpath -Dmdep.outputFile="$GITHUB_WORKSPACE/tools/classpath.txt"
+          test -s tools/classpath.txt
 
       - name: Download and validate source APK
         run: |
@@ -65,7 +76,7 @@ jobs:
             unzip -p input/AirBeats-original.apk "$dex" > "$dir/input.dex"
             magic="$(head -c 8 "$dir/input.dex" | od -An -tc | tr -d ' \n')"
             printf '%s original_magic=%s bytes=%s\n' "$dex" "$magic" "$(stat -c%s "$dir/input.dex")" | tee -a output/dex-report.txt
-            java -jar tools/baksmali.jar disassemble --api 23 "$dir/input.dex" -o "$dir/smali"
+            java -cp "$(cat tools/classpath.txt)" org.jf.baksmali.Main disassemble --api 23 "$dir/input.dex" -o "$dir/smali"
 
             python3 - "$dir/smali" "$dex" <<'PY'
           import pathlib, re, sys
@@ -140,7 +151,7 @@ jobs:
               echo "Known API 24+ reference remains after patch in $dex" | tee -a output/dex-report.txt
               exit 1
             fi
-            java -jar tools/smali.jar assemble --api 23 -o "work/$dex" "$dir/smali"
+            java -cp "$(cat tools/classpath.txt)" org.jf.smali.Main assemble --api 23 -o "work/$dex" "$dir/smali"
           done < work/dex-list.txt
 
       - name: Rebuild APK and validate DEX
