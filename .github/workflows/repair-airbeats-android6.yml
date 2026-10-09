@@ -210,6 +210,28 @@ jobs:
           print(dex_name, counts)
           PY
 
+            # Android 6 ART crashes natively while resolving exception-handler types
+            # in a7/c.createFromParcel. Its only non-platform catch type is bg/a.
+            # Use the platform RuntimeException base type for that single handler
+            # to avoid loading the obfuscated handler class during verifier setup.
+            # Keep this surgical: broad catch rewrites previously overflowed DEX
+            # handler offsets during assembly.
+            if [[ "$dex" == "classes.dex" && -f "$dir/smali/a7/c.smali" ]]; then
+              python3 - "$dir/smali/a7/c.smali" <<'PY'
+          import pathlib, re, sys
+          p = pathlib.Path(sys.argv[1])
+          s = p.read_text(encoding="utf-8")
+          old = re.compile(r'^(\s*\.catch\s+)Lbg/a;(\s+\{)', re.M)
+          s2, n = old.subn(r'\1Ljava/lang/RuntimeException;\2', s)
+          if n != 1:
+              raise SystemExit(f"Expected exactly one a7/c catch for Lbg/a;, found {n}; refusing unsafe rewrite")
+          p.write_text(s2, encoding="utf-8")
+          with open("output/compatibility-patches.txt", "a", encoding="utf-8") as f:
+              f.write("classes.dex: a7/c catch Lbg/a; -> Ljava/lang/RuntimeException; (Android 6 ART verifier workaround): 1\\n")
+          print("Patched one a7/c exception handler for Android 6 ART compatibility")
+          PY
+            fi
+
             if grep -R -E 'Landroid/os/UserManager;->isUserUnlocked\(\)Z|Landroid/content/Context;->(isDeviceProtectedStorage\(\)Z|createDeviceProtectedStorageContext\(\)Landroid/content/Context;)|Landroid/app/NotificationManager;->areNotificationsEnabled\(\)Z' "$dir/smali" --include='*.smali'; then
               echo "Known API 24+ reference remains after patch in $dex" | tee -a output/dex-report.txt
               exit 1
