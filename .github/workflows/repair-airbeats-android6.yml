@@ -217,7 +217,7 @@ jobs:
             java -cp "$(cat tools/classpath.txt)" org.jf.smali.Main assemble --api 23 -o "work/$dex" "$dir/smali"
           done < work/dex-list.txt
 
-      - name: Harden ART-crash exception handlers in reported classes
+      - name: Rewrite app-specific catch types for Android 6 ART
         shell: bash
         run: |
           set -euo pipefail
@@ -225,7 +225,7 @@ jobs:
           : > output/art-exception-handler-hardening.txt
           while IFS= read -r dex; do
             [[ -n "$dex" ]] || continue
-            name="${dex%.dex}"
+            name="\${dex%.dex}"
             dir="work/art-hardening/$name"
             mkdir -p "$dir/smali"
             java -cp "$(cat tools/classpath.txt)" org.jf.baksmali.Main disassemble --api 23 "work/$dex" -o "$dir/smali"
@@ -233,28 +233,40 @@ jobs:
           import pathlib, re, sys
           root = pathlib.Path(sys.argv[1])
           dex = sys.argv[2]
-          # These classes appeared in Android 6 ART's ResolveMethodExceptionHandlerTypes
-          # crash traces across repeated runs. Keep the handler blocks, but use the
-          # API-23-safe root exception type to avoid resolving incompatible obfuscated
-          # handler classes during old ART verification.
-          targets = {"a7/c.smali", "a2/e.smali", "o/t1.smali", "zf/e.smali"}
+          # ART on API 23 segfaulted while resolving an obfuscated application
+          # exception type in a catch table. Preserve handler destinations and
+          # typed catches for standard platform/library exceptions; normalize
+          # app-specific/obfuscated catches to Throwable to avoid that resolver path.
+          safe_prefixes = (
+              "java/", "javax/", "android/", "androidx/", "com/android/",
+              "com/google/", "com/squareup/", "com/bumptech/", "com/facebook/",
+              "com/fasterxml/", "com/googlecode/", "org/", "kotlin/",
+              "kotlinx/", "okhttp3/", "okio/", "retrofit2/", "dagger/",
+              "io/reactivex/", "io/flutter/", "com/jakewharton/"
+          )
           changed = 0
           details = []
+          pat = re.compile(r"(?m)^([ \t]*)\.catch\s+L([^;]+);(\s+\{)")
           for path in root.rglob("*.smali"):
-              rel = path.relative_to(root).as_posix()
-              if rel not in targets:
-                  continue
               src = path.read_text(encoding="utf-8", errors="replace")
-              out, n = re.subn(r"(?m)^([ \t]*)\.catch\s+L[^;]+;(\s+\{)", lambda m: m.group(1) + ".catch Ljava/lang/Throwable;" + m.group(2), src)
-              if n:
+              local = []
+              def replace(match):
+                  descriptor = match.group(2)
+                  if descriptor.startswith(safe_prefixes):
+                      return match.group(0)
+                  local.append(descriptor)
+                  return match.group(1) + ".catch Ljava/lang/Throwable;" + match.group(3)
+              out = pat.sub(replace, src)
+              if out != src:
                   path.write_text(out, encoding="utf-8")
-                  changed += n
-                  details.append(f"{dex}:{rel}: broadened {n} typed catch handler(s) to Throwable")
+                  changed += len(local)
+                  if local:
+                      details.append(f"{dex}:{path.relative_to(root).as_posix()}: " + ", ".join(local))
           with pathlib.Path("output/art-exception-handler-hardening.txt").open("a", encoding="utf-8") as f:
-              f.write(f"{dex}: changed_handlers={changed}\n")
+              f.write(f"{dex}: app_specific_catches_rewritten={changed}\n")
               for line in details:
                   f.write(line + "\n")
-          print(f"{dex}: hardened {changed} catch handler(s)")
+          print(f"{dex}: rewrote {changed} app-specific catch handler(s)")
           PY
             java -cp "$(cat tools/classpath.txt)" org.jf.smali.Main assemble --api 23 -o "work/$dex" "$dir/smali"
           done < work/dex-list.txt
@@ -392,6 +404,8 @@ jobs:
             output/repaired-sha256.txt
             output/apk-badging.txt
             output/compatibility-patches.txt
+            output/art-exception-handler-hardening.txt
+            output/hardened-dex-sha256.txt
             output/api24-reference-report.txt
             output/api23-catch-handler-diagnostics.txt
             output/android6-test-report.txt
