@@ -9,7 +9,7 @@ permissions:
 jobs:
   repair:
     runs-on: ubuntu-latest
-    timeout-minutes: 25
+    timeout-minutes: 30
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -23,7 +23,7 @@ jobs:
       - name: Set up Android build tools
         uses: android-actions/setup-android@v3
 
-      - name: Install build tools
+      - name: Install Android build tools
         run: |
           sdkmanager "build-tools;35.0.0" "platform-tools"
           echo "$ANDROID_HOME/build-tools/35.0.0" >> "$GITHUB_PATH"
@@ -33,44 +33,45 @@ jobs:
           mkdir -p tools input work output
           curl -fL --retry 3 -o tools/baksmali.jar https://repo1.maven.org/maven2/org/smali/baksmali/2.5.2/baksmali-2.5.2.jar
           curl -fL --retry 3 -o tools/smali.jar https://repo1.maven.org/maven2/org/smali/smali/2.5.2/smali-2.5.2.jar
+          test -s tools/baksmali.jar
+          test -s tools/smali.jar
 
-      - name: Download the committed AirBeats APK
+      - name: Download and validate source APK
         run: |
-          curl -fL --retry 3 \
-            "https://raw.githubusercontent.com/DS-ann/PhoneBridge/main/AirBeats_v6.2.0_android6_api23_fixed.apk" \
-            -o input/AirBeats-original.apk
+          set -euo pipefail
+          curl -fL --retry 3 "https://raw.githubusercontent.com/DS-ann/PhoneBridge/main/AirBeats_v6.2.0_android6_api23_fixed.apk" -o input/AirBeats-original.apk
           test -s input/AirBeats-original.apk
           sha256sum input/AirBeats-original.apk | tee output/source-sha256.txt
           unzip -t input/AirBeats-original.apk
+          unzip -Z1 input/AirBeats-original.apk | grep -E '^classes([0-9]+)?\.dex$' | sort -V > work/dex-list.txt
+          test -s work/dex-list.txt
 
-      - name: Normalize DEX and patch API-24 UserManager call
+      - name: Rebuild DEX and patch known Android 7 APIs
         shell: bash
         run: |
           set -euo pipefail
-          mkdir -p work/dex
-          unzip -Z1 input/AirBeats-original.apk | grep -E '^classes([0-9]+)?\.dex$' | sort -V > work/dex-list.txt
-          test -s work/dex-list.txt
           : > output/dex-report.txt
-          patched_total=0
-
+          : > output/compatibility-patches.txt
           while IFS= read -r dex; do
             [[ -n "$dex" ]] || continue
             name="${dex%.dex}"
             dir="work/dex/$name"
-            mkdir -p "$dir"
+            mkdir -p "$dir/smali"
             unzip -p input/AirBeats-original.apk "$dex" > "$dir/input.dex"
             magic="$(head -c 8 "$dir/input.dex" | od -An -tc | tr -d ' \n')"
-            printf '%s magic=%s bytes=%s\n' "$dex" "$magic" "$(stat -c%s "$dir/input.dex")" | tee -a output/dex-report.txt
-            mkdir -p "$dir/smali"
+            printf '%s original_magic=%s bytes=%s\n' "$dex" "$magic" "$(stat -c%s "$dir/input.dex")" | tee -a output/dex-report.txt
             java -jar tools/baksmali.jar disassemble --api 23 "$dir/input.dex" -o "$dir/smali"
 
-            python3 - "$dir/smali" <<'PY'
+            python3 - "$dir/smali" "$dex" <<'PY'
           import pathlib, re, sys
           root = pathlib.Path(sys.argv[1])
-          counts = {"UserManager.isUserUnlocked -> true": 0,
-                    "Context.isDeviceProtectedStorage -> false": 0,
-                    "Context.createDeviceProtectedStorageContext -> same Context": 0,
-                    "NotificationManager.areNotificationsEnabled -> true": 0}
+          dex_name = sys.argv[2]
+          counts = {
+              "UserManager.isUserUnlocked -> true": 0,
+              "Context.isDeviceProtectedStorage -> false": 0,
+              "Context.createDeviceProtectedStorageContext -> same Context": 0,
+              "NotificationManager.areNotificationsEnabled -> true": 0,
+          }
           patterns = [
               (re.compile(r'^\s*invoke-virtual(?:/range)?\s+\{([^}]+)\},\s*Landroid/os/UserManager;->isUserUnlocked\(\)Z\s*(?:#.*)?$'), "unlocked"),
               (re.compile(r'^\s*invoke-virtual(?:/range)?\s+\{([^}]+)\},\s*Landroid/content/Context;->isDeviceProtectedStorage\(\)Z\s*(?:#.*)?$'), "device_bool"),
@@ -78,8 +79,8 @@ jobs:
               (re.compile(r'^\s*invoke-virtual(?:/range)?\s+\{[^}]+\},\s*Landroid/app/NotificationManager;->areNotificationsEnabled\(\)Z\s*(?:#.*)?$'), "notifications"),
           ]
           result_re = re.compile(r'^(\s*)(move-result(?:-object)?)\s+(v\d+|p\d+)\s*(?:#.*)?$')
-          for path in root.rglob('*.smali'):
-              lines = path.read_text(encoding='utf-8').splitlines()
+          for path in root.rglob("*.smali"):
+              lines = path.read_text(encoding="utf-8").splitlines()
               out, i, changed = [], 0, False
               while i < len(lines):
                   hit = None
@@ -88,386 +89,112 @@ jobs:
                       if match:
                           hit = (kind, match)
                           break
-                  if not hit:
+                  if hit is None:
                       out.append(lines[i])
                       i += 1
                       continue
                   kind, match = hit
                   if i + 1 >= len(lines):
-                      raise SystemExit(f'Missing move-result after {kind} in {path}:{i+1}')
+                      raise SystemExit(f"Missing move-result after {kind} in {path}:{i+1}")
                   result = result_re.match(lines[i+1])
-                  if not result:
-                      raise SystemExit(f'Unexpected instruction after {kind} in {path}:{i+1}: {lines[i+1]}')
+                  if result is None:
+                      raise SystemExit(f"Unexpected instruction after {kind} in {path}:{i+1}: {lines[i+1]}")
                   indent, result_kind, dest = result.groups()
-                  regs = [x.strip() for x in match.group(1).split(',')]
-                  if kind == "unlocked":
+                  if kind in ("unlocked", "device_bool", "notifications"):
                       if result_kind != "move-result":
-                          raise SystemExit(f'Expected move-result for {kind} in {path}:{i+1}')
-                      out.append(f'{indent}const/4 {dest}, 0x1')
-                      counts["UserManager.isUserUnlocked -> true"] += 1
-                  elif kind == "device_bool":
-                      if result_kind != "move-result":
-                          raise SystemExit(f'Expected move-result for {kind} in {path}:{i+1}')
-                      out.append(f'{indent}const/4 {dest}, 0x0')
-                      counts["Context.isDeviceProtectedStorage -> false"] += 1
-                  elif kind == "notifications":
-                      if result_kind != "move-result":
-                          raise SystemExit(f'Expected move-result for {kind} in {path}:{i+1}')
-                      out.append(f'{indent}const/4 {dest}, 0x1')
-                      counts["NotificationManager.areNotificationsEnabled -> true"] += 1
+                          raise SystemExit(f"Expected move-result for {kind} in {path}:{i+1}")
+                      value = "0x0" if kind == "device_bool" else "0x1"
+                      out.append(f"{indent}const/4 {dest}, {value}")
+                      label = {
+                          "unlocked": "UserManager.isUserUnlocked -> true",
+                          "device_bool": "Context.isDeviceProtectedStorage -> false",
+                          "notifications": "NotificationManager.areNotificationsEnabled -> true",
+                      }[kind]
+                      counts[label] += 1
                   else:
                       if result_kind != "move-result-object":
-                          raise SystemExit(f'Expected move-result-object for {kind} in {path}:{i+1}')
-                      out.append(f'{indent}move-object {dest}, {regs[0].split(' .. ')[0]}')
+                          raise SystemExit(f"Expected move-result-object for {kind} in {path}:{i+1}")
+                      # This method has only the receiver argument. On API <24,
+                      # use the existing Context as the compatibility fallback.
+                      receiver_text = match.group(1).split(",", 1)[0].strip()
+                      receiver = receiver_text.split(" .. ", 1)[0].strip()
+                      out.append("{}move-object {}, {}".format(indent, dest, receiver))
                       counts["Context.createDeviceProtectedStorageContext -> same Context"] += 1
                   i += 2
                   changed = True
               if changed:
-                  path.write_text('\n'.join(out) + '\n', encoding='utf-8')
-          report = pathlib.Path("output/compatibility-patches.txt")
-          with report.open("a", encoding="utf-8") as f:
+                  path.write_text("\n".join(out) + "\n", encoding="utf-8")
+          with pathlib.Path("output/compatibility-patches.txt").open("a", encoding="utf-8") as f:
+              f.write(f"{dex_name}:\n")
               for name, count in counts.items():
-                  f.write(f"{name}: {count}\n")
-          print(counts)
+                  f.write(f"  {name}: {count}\n")
+          print(dex_name, counts)
           PY
-            # Count occurrences in the decoded tree and add to summary.
-            # Python output above is the per-DEX replacement count.
-            count=$(grep -R -E 'Landroid/os/UserManager;->isUserUnlocked\(\)Z' "$dir/smali" --include='*.smali' | wc -l || true)
-            if [[ "$count" -ne 0 ]]; then
-              echo "ERROR: unpatched isUserUnlocked reference remains in $dex" | tee -a output/dex-report.txt
+
+            if grep -R -E 'Landroid/os/UserManager;->isUserUnlocked\(\)Z|Landroid/content/Context;->(isDeviceProtectedStorage\(\)Z|createDeviceProtectedStorageContext\(\)Landroid/content/Context;)|Landroid/app/NotificationManager;->areNotificationsEnabled\(\)Z' "$dir/smali" --include='*.smali'; then
+              echo "Known API 24+ reference remains after patch in $dex" | tee -a output/dex-report.txt
               exit 1
             fi
-            java -jar tools/smali.jar assemble --api 23 "$dir/smali" -o "work/$dex"
+            java -jar tools/smali.jar assemble --api 23 -o "work/$dex" "$dir/smali"
           done < work/dex-list.txt
 
-          # Rebuild APK, replacing only DEX entries. All resources and manifest
-          # remain byte-for-byte from the original archive.
+      - name: Rebuild APK and validate DEX
+        run: |
+          set -euo pipefail
           python3 - <<'PY'
-          import pathlib, zipfile, re
-          src = pathlib.Path('input/AirBeats-original.apk')
-          dest = pathlib.Path('work/AirBeats-rebuilt-unsigned.apk')
-          dexes = [x.strip() for x in pathlib.Path('work/dex-list.txt').read_text().splitlines() if x.strip()]
-          with zipfile.ZipFile(src, 'r') as zin, zipfile.ZipFile(dest, 'w') as zout:
+          import pathlib, zipfile
+          src = pathlib.Path("input/AirBeats-original.apk")
+          dest = pathlib.Path("work/AirBeats-rebuilt-unsigned.apk")
+          dexes = [x.strip() for x in pathlib.Path("work/dex-list.txt").read_text().splitlines() if x.strip()]
+          with zipfile.ZipFile(src, "r") as zin, zipfile.ZipFile(dest, "w") as zout:
               for item in zin.infolist():
-                  # Drop stale v1 signatures because every DEX is rewritten.
                   upper = item.filename.upper()
-                  if upper == 'META-INF/MANIFEST.MF' or (upper.startswith('META-INF/') and upper.endswith(('.RSA', '.DSA', '.EC', '.SF'))):
+                  # Remove stale signatures because the DEX content changed.
+                  if upper == "META-INF/MANIFEST.MF" or (upper.startswith("META-INF/") and upper.endswith((".RSA", ".DSA", ".EC", ".SF"))):
                       continue
                   if item.filename in dexes:
-                      data = pathlib.Path('work', item.filename).read_bytes()
-                      zout.writestr(item, data)
+                      zout.writestr(item, pathlib.Path("work", item.filename).read_bytes())
                   else:
                       zout.writestr(item, zin.read(item.filename))
           with zipfile.ZipFile(dest) as z:
               bad = z.testzip()
               if bad:
-                  raise SystemExit(f'Bad ZIP entry after rebuild: {bad}')
+                  raise SystemExit(f"Bad ZIP entry: {bad}")
               for dex in dexes:
                   data = z.read(dex)
-                  if not data.startswith(b'dex\n035\0'):
-                      raise SystemExit(f'{dex} did not assemble as DEX 035: {data[:8]!r}')
-          print('Rebuilt DEX files:', ', '.join(dexes))
+                  if not data.startswith(b"dex\n035\0"):
+                      raise SystemExit(f"{dex} is not DEX 035: {data[:8]!r}")
+          print("Rebuilt and verified DEX files:", ", ".join(dexes))
           PY
 
-      - name: Report remaining Android 7+ API references
+      - name: Report remaining known Android 7+ API references
         shell: bash
         run: |
           set -euo pipefail
-          report=output/api24-reference-report.txt
           {
-            echo "Known Android 7+ framework references remaining after compatibility patch:"
+            echo "Known Android 7+ API references after patch:"
             if grep -R -n -E 'Landroid/os/UserManager;->isUserUnlocked|Landroid/content/Context;->(isDeviceProtectedStorage|createDeviceProtectedStorageContext)|Landroid/app/NotificationManager;->areNotificationsEnabled' work/dex --include='*.smali'; then
               true
             else
               echo "None of the specifically checked references remain."
             fi
             echo
-            echo "This is a targeted diagnostic, not a complete API-level verifier."
-          } > "$report"
-          cat "$report"
+            echo "This is a targeted check, not a complete API-level verifier."
+          } > output/api24-reference-report.txt
 
-      - name: Align and sign repaired APK
+      - name: Align, sign, and verify APK
         run: |
           set -euo pipefail
           keytool -genkeypair -noprompt -keystore work/airbeats-repair.jks \
             -storepass repairpass -keypass repairpass -alias repair \
             -dname "CN=AirBeats Android 6 compatibility repair" -keyalg RSA -keysize 2048 -validity 10000
-          zipalign -f -p 4 work/AirBeats-rebuilt-unsigned.apk output/AirBeats_v6.2.0_android6_repaired-aligned.apk
+          zipalign -f -p 4 work/AirBeats-rebuilt-unsigned.apk work/AirBeats-aligned.apk
           apksigner sign --ks work/airbeats-repair.jks --ks-pass pass:repairpass \
-            --key-pass pass:repairpass --out output/AirBeats_v6.2.0_android6_repaired.apk \
-            output/AirBeats_v6.2.0_android6_repaired-aligned.apk
+            --key-pass pass:repairpass --out output/AirBeats_v6.2.0_android6_repaired.apk work/AirBeats-aligned.apk
           apksigner verify --verbose output/AirBeats_v6.2.0_android6_repaired.apk
           sha256sum output/AirBeats_v6.2.0_android6_repaired.apk | tee output/repaired-sha256.txt
-          aapt dump badging output/AirBeats_v6.2.0_android6_repaired.apk | head -30 | tee output/apk-badging.txt
-
-      - name: Upload repaired APK and diagnostics
-        uses: actions/upload-artifact@v4
-        with:
-          name: AirBeats-Android6-repair-candidate
-          path: |
-            output/AirBeats_v6.2.0_android6_repaired.apk
-            output/dex-report.txt
-            output/source-sha256.txt
-            output/repaired-sha256.txt
-            output/apk-badging.txt
-            output/compatibility-patches.txt
-            output/api24-reference-report.txt
-          if-no-files-found: error
-          retention-days: 14
-), "device_context"),
-              (re.compile(r'^\s*invoke-virtual(?:/range)?\s+\{[^}]+\},\s*Landroid/app/NotificationManager;->areNotificationsEnabled\(\)Z\s*(?:#.*)?
-          ]
-          result_re = re.compile(r'^(\s*)(move-result(?:-object)?)\s+(v\d+|p\d+)\s*(?:#.*)?$')
-          for path in root.rglob('*.smali'):
-              lines = path.read_text(encoding='utf-8').splitlines()
-              out, i, changed = [], 0, False
-              while i < len(lines):
-                  hit = None
-                  for invoke_re, kind in patterns:
-                      match = invoke_re.match(lines[i])
-                      if match:
-                          hit = (kind, match)
-                          break
-                  if not hit:
-                      out.append(lines[i])
-                      i += 1
-                      continue
-                  kind, match = hit
-                  if i + 1 >= len(lines):
-                      raise SystemExit(f'Missing move-result after {kind} in {path}:{i+1}')
-                  result = result_re.match(lines[i+1])
-                  if not result:
-                      raise SystemExit(f'Unexpected instruction after {kind} in {path}:{i+1}: {lines[i+1]}')
-                  indent, result_kind, dest = result.groups()
-                  regs = [x.strip() for x in match.group(1).split(',')]
-                  if kind == "unlocked":
-                      if result_kind != "move-result":
-                          raise SystemExit(f'Expected move-result for {kind} in {path}:{i+1}')
-                      out.append(f'{indent}const/4 {dest}, 0x1')
-                      counts["UserManager.isUserUnlocked -> true"] += 1
-                  elif kind == "device_bool":
-                      if result_kind != "move-result":
-                          raise SystemExit(f'Expected move-result for {kind} in {path}:{i+1}')
-                      out.append(f'{indent}const/4 {dest}, 0x0')
-                      counts["Context.isDeviceProtectedStorage -> false"] += 1
-                  else:
-                      if result_kind != "move-result-object":
-                          raise SystemExit(f'Expected move-result-object for {kind} in {path}:{i+1}')
-                      out.append(f'{indent}move-object {dest}, {regs[0].split(' .. ')[0]}')
-                      counts["Context.createDeviceProtectedStorageContext -> same Context"] += 1
-                  i += 2
-                  changed = True
-              if changed:
-                  path.write_text('\n'.join(out) + '\n', encoding='utf-8')
-          report = pathlib.Path("output/compatibility-patches.txt")
-          with report.open("a", encoding="utf-8") as f:
-              for name, count in counts.items():
-                  f.write(f"{name}: {count}\n")
-          print(counts)
-          PY
-            # Count occurrences in the decoded tree and add to summary.
-            # Python output above is the per-DEX replacement count.
-            count=$(grep -R -E 'Landroid/os/UserManager;->isUserUnlocked\(\)Z' "$dir/smali" --include='*.smali' | wc -l || true)
-            if [[ "$count" -ne 0 ]]; then
-              echo "ERROR: unpatched isUserUnlocked reference remains in $dex" | tee -a output/dex-report.txt
-              exit 1
-            fi
-            java -jar tools/smali.jar assemble --api 23 "$dir/smali" -o "work/$dex"
-          done < work/dex-list.txt
-
-          # Rebuild APK, replacing only DEX entries. All resources and manifest
-          # remain byte-for-byte from the original archive.
-          python3 - <<'PY'
-          import pathlib, zipfile, re
-          src = pathlib.Path('input/AirBeats-original.apk')
-          dest = pathlib.Path('work/AirBeats-rebuilt-unsigned.apk')
-          dexes = [x.strip() for x in pathlib.Path('work/dex-list.txt').read_text().splitlines() if x.strip()]
-          with zipfile.ZipFile(src, 'r') as zin, zipfile.ZipFile(dest, 'w') as zout:
-              for item in zin.infolist():
-                  # Drop stale v1 signatures because every DEX is rewritten.
-                  upper = item.filename.upper()
-                  if upper == 'META-INF/MANIFEST.MF' or (upper.startswith('META-INF/') and upper.endswith(('.RSA', '.DSA', '.EC', '.SF'))):
-                      continue
-                  if item.filename in dexes:
-                      data = pathlib.Path('work', item.filename).read_bytes()
-                      zout.writestr(item, data)
-                  else:
-                      zout.writestr(item, zin.read(item.filename))
-          with zipfile.ZipFile(dest) as z:
-              bad = z.testzip()
-              if bad:
-                  raise SystemExit(f'Bad ZIP entry after rebuild: {bad}')
-              for dex in dexes:
-                  data = z.read(dex)
-                  if not data.startswith(b'dex\n035\0'):
-                      raise SystemExit(f'{dex} did not assemble as DEX 035: {data[:8]!r}')
-          print('Rebuilt DEX files:', ', '.join(dexes))
-          PY
-
-      - name: Report remaining Android 7+ API references
-        shell: bash
-        run: |
-          set -euo pipefail
-          report=output/api24-reference-report.txt
-          {
-            echo "Known Android 7+ framework references remaining after compatibility patch:"
-            if grep -R -n -E 'Landroid/os/UserManager;->isUserUnlocked|Landroid/content/Context;->(isDeviceProtectedStorage|createDeviceProtectedStorageContext)|Landroid/app/NotificationManager;->areNotificationsEnabled' work/dex --include='*.smali'; then
-              true
-            else
-              echo "None of the specifically checked references remain."
-            fi
-            echo
-            echo "This is a targeted diagnostic, not a complete API-level verifier."
-          } > "$report"
-          cat "$report"
-
-      - name: Align and sign repaired APK
-        run: |
-          set -euo pipefail
-          keytool -genkeypair -noprompt -keystore work/airbeats-repair.jks \
-            -storepass repairpass -keypass repairpass -alias repair \
-            -dname "CN=AirBeats Android 6 compatibility repair" -keyalg RSA -keysize 2048 -validity 10000
-          zipalign -f -p 4 work/AirBeats-rebuilt-unsigned.apk output/AirBeats_v6.2.0_android6_repaired-aligned.apk
-          apksigner sign --ks work/airbeats-repair.jks --ks-pass pass:repairpass \
-            --key-pass pass:repairpass --out output/AirBeats_v6.2.0_android6_repaired.apk \
-            output/AirBeats_v6.2.0_android6_repaired-aligned.apk
-          apksigner verify --verbose output/AirBeats_v6.2.0_android6_repaired.apk
-          sha256sum output/AirBeats_v6.2.0_android6_repaired.apk | tee output/repaired-sha256.txt
-          aapt dump badging output/AirBeats_v6.2.0_android6_repaired.apk | head -30 | tee output/apk-badging.txt
-
-      - name: Upload repaired APK and diagnostics
-        uses: actions/upload-artifact@v4
-        with:
-          name: AirBeats-Android6-repair-candidate
-          path: |
-            output/AirBeats_v6.2.0_android6_repaired.apk
-            output/dex-report.txt
-            output/source-sha256.txt
-            output/repaired-sha256.txt
-            output/apk-badging.txt
-            output/compatibility-patches.txt
-            output/api24-reference-report.txt
-          if-no-files-found: error
-          retention-days: 14
-), "notifications"),
-          ]
-          result_re = re.compile(r'^(\s*)(move-result(?:-object)?)\s+(v\d+|p\d+)\s*(?:#.*)?$')
-          for path in root.rglob('*.smali'):
-              lines = path.read_text(encoding='utf-8').splitlines()
-              out, i, changed = [], 0, False
-              while i < len(lines):
-                  hit = None
-                  for invoke_re, kind in patterns:
-                      match = invoke_re.match(lines[i])
-                      if match:
-                          hit = (kind, match)
-                          break
-                  if not hit:
-                      out.append(lines[i])
-                      i += 1
-                      continue
-                  kind, match = hit
-                  if i + 1 >= len(lines):
-                      raise SystemExit(f'Missing move-result after {kind} in {path}:{i+1}')
-                  result = result_re.match(lines[i+1])
-                  if not result:
-                      raise SystemExit(f'Unexpected instruction after {kind} in {path}:{i+1}: {lines[i+1]}')
-                  indent, result_kind, dest = result.groups()
-                  regs = [x.strip() for x in match.group(1).split(',')]
-                  if kind == "unlocked":
-                      if result_kind != "move-result":
-                          raise SystemExit(f'Expected move-result for {kind} in {path}:{i+1}')
-                      out.append(f'{indent}const/4 {dest}, 0x1')
-                      counts["UserManager.isUserUnlocked -> true"] += 1
-                  elif kind == "device_bool":
-                      if result_kind != "move-result":
-                          raise SystemExit(f'Expected move-result for {kind} in {path}:{i+1}')
-                      out.append(f'{indent}const/4 {dest}, 0x0')
-                      counts["Context.isDeviceProtectedStorage -> false"] += 1
-                  else:
-                      if result_kind != "move-result-object":
-                          raise SystemExit(f'Expected move-result-object for {kind} in {path}:{i+1}')
-                      out.append(f'{indent}move-object {dest}, {regs[0].split(' .. ')[0]}')
-                      counts["Context.createDeviceProtectedStorageContext -> same Context"] += 1
-                  i += 2
-                  changed = True
-              if changed:
-                  path.write_text('\n'.join(out) + '\n', encoding='utf-8')
-          report = pathlib.Path("output/compatibility-patches.txt")
-          with report.open("a", encoding="utf-8") as f:
-              for name, count in counts.items():
-                  f.write(f"{name}: {count}\n")
-          print(counts)
-          PY
-            # Count occurrences in the decoded tree and add to summary.
-            # Python output above is the per-DEX replacement count.
-            count=$(grep -R -E 'Landroid/os/UserManager;->isUserUnlocked\(\)Z' "$dir/smali" --include='*.smali' | wc -l || true)
-            if [[ "$count" -ne 0 ]]; then
-              echo "ERROR: unpatched isUserUnlocked reference remains in $dex" | tee -a output/dex-report.txt
-              exit 1
-            fi
-            java -jar tools/smali.jar assemble --api 23 "$dir/smali" -o "work/$dex"
-          done < work/dex-list.txt
-
-          # Rebuild APK, replacing only DEX entries. All resources and manifest
-          # remain byte-for-byte from the original archive.
-          python3 - <<'PY'
-          import pathlib, zipfile, re
-          src = pathlib.Path('input/AirBeats-original.apk')
-          dest = pathlib.Path('work/AirBeats-rebuilt-unsigned.apk')
-          dexes = [x.strip() for x in pathlib.Path('work/dex-list.txt').read_text().splitlines() if x.strip()]
-          with zipfile.ZipFile(src, 'r') as zin, zipfile.ZipFile(dest, 'w') as zout:
-              for item in zin.infolist():
-                  # Drop stale v1 signatures because every DEX is rewritten.
-                  upper = item.filename.upper()
-                  if upper == 'META-INF/MANIFEST.MF' or (upper.startswith('META-INF/') and upper.endswith(('.RSA', '.DSA', '.EC', '.SF'))):
-                      continue
-                  if item.filename in dexes:
-                      data = pathlib.Path('work', item.filename).read_bytes()
-                      zout.writestr(item, data)
-                  else:
-                      zout.writestr(item, zin.read(item.filename))
-          with zipfile.ZipFile(dest) as z:
-              bad = z.testzip()
-              if bad:
-                  raise SystemExit(f'Bad ZIP entry after rebuild: {bad}')
-              for dex in dexes:
-                  data = z.read(dex)
-                  if not data.startswith(b'dex\n035\0'):
-                      raise SystemExit(f'{dex} did not assemble as DEX 035: {data[:8]!r}')
-          print('Rebuilt DEX files:', ', '.join(dexes))
-          PY
-
-      - name: Report remaining Android 7+ API references
-        shell: bash
-        run: |
-          set -euo pipefail
-          report=output/api24-reference-report.txt
-          {
-            echo "Known Android 7+ framework references remaining after compatibility patch:"
-            if grep -R -n -E 'Landroid/os/UserManager;->isUserUnlocked|Landroid/content/Context;->(isDeviceProtectedStorage|createDeviceProtectedStorageContext)|Landroid/app/NotificationManager;->areNotificationsEnabled' work/dex --include='*.smali'; then
-              true
-            else
-              echo "None of the specifically checked references remain."
-            fi
-            echo
-            echo "This is a targeted diagnostic, not a complete API-level verifier."
-          } > "$report"
-          cat "$report"
-
-      - name: Align and sign repaired APK
-        run: |
-          set -euo pipefail
-          keytool -genkeypair -noprompt -keystore work/airbeats-repair.jks \
-            -storepass repairpass -keypass repairpass -alias repair \
-            -dname "CN=AirBeats Android 6 compatibility repair" -keyalg RSA -keysize 2048 -validity 10000
-          zipalign -f -p 4 work/AirBeats-rebuilt-unsigned.apk output/AirBeats_v6.2.0_android6_repaired-aligned.apk
-          apksigner sign --ks work/airbeats-repair.jks --ks-pass pass:repairpass \
-            --key-pass pass:repairpass --out output/AirBeats_v6.2.0_android6_repaired.apk \
-            output/AirBeats_v6.2.0_android6_repaired-aligned.apk
-          apksigner verify --verbose output/AirBeats_v6.2.0_android6_repaired.apk
-          sha256sum output/AirBeats_v6.2.0_android6_repaired.apk | tee output/repaired-sha256.txt
-          aapt dump badging output/AirBeats_v6.2.0_android6_repaired.apk | head -30 | tee output/apk-badging.txt
+          aapt dump badging output/AirBeats_v6.2.0_android6_repaired.apk > output/apk-badging.txt
+          head -30 output/apk-badging.txt
 
       - name: Upload repaired APK and diagnostics
         uses: actions/upload-artifact@v4
