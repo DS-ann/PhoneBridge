@@ -303,11 +303,10 @@ jobs:
           # Test only the repaired candidate APK; do not install or launch the source APK.
           echo "candidate_only=true" >> output/android6-test-report.txt
 
-          # Android 6 x86_64 emulator's ART compiler can SIGSEGV while compiling
-          # this legacy multidex APK. Force interpreter-only dexopt before install;
-          # this avoids the native compiler path and tests the app's Java startup.
-          adb shell setprop dalvik.vm.dex2oat-filter interpret-only || true
-          adb shell setprop dalvik.vm.dexopt-flags v=n,o=v || true
+          # Keep the emulator's boot-time ART configuration intact. Runtime setprop
+          # came too late to change the compiler settings and caused misleading dex2oat
+          # permission errors. The x86_64 API-23 image crashes in its compiler driver
+          # on this legacy APK, so the smoke test uses the API-23 32-bit x86 image.
           adb shell getprop dalvik.vm.dex2oat-filter >> output/android6-test-report.txt
           adb logcat -c
           adb install -r output/AirBeats_v6.2.0_android6_repaired.apk > output/android6-install.txt 2>&1
@@ -353,7 +352,7 @@ jobs:
         with:
           api-level: 23
           target: default
-          arch: x86_64
+          arch: x86
           profile: Nexus 6
           emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim -camera-back none
           disable-animations: true
