@@ -30,7 +30,7 @@ jobs:
 
       - name: Install Android build tools
         run: |
-          sdkmanager "build-tools;35.0.0" "platform-tools"
+          sdkmanager "build-tools;35.0.0" "platform-tools" "platforms;android-23"
           echo "$ANDROID_HOME/build-tools/35.0.0" >> "$GITHUB_PATH"
 
       - name: Resolve DEX tools and dependencies
@@ -89,6 +89,41 @@ jobs:
             magic="$(head -c 8 "$dir/input.dex" | od -An -tc | tr -d ' \n')"
             printf '%s original_magic=%s bytes=%s\n' "$dex" "$magic" "$(stat -c%s "$dir/input.dex")" | tee -a output/dex-report.txt
             java -cp "$(cat tools/classpath.txt)" org.jf.baksmali.Main disassemble --api 23 "$dir/input.dex" -o "$dir/smali"
+
+            # Android 6 ART crashed in ResolveMethodExceptionHandlerTypes while
+            # verifying the original APK too. Record catch-handler types missing
+            # from the API 23 framework stubs before changing anything, so a
+            # subsequent compatibility fix can be based on actual evidence.
+            python3 - "$dir/smali" "$dex" "$ANDROID_HOME/platforms/android-23/android.jar" <<'PY'
+          import pathlib, re, sys, zipfile
+          root = pathlib.Path(sys.argv[1])
+          dex_name = sys.argv[2]
+          jar_path = pathlib.Path(sys.argv[3])
+          with zipfile.ZipFile(jar_path) as jar:
+              available = set(jar.namelist())
+          catches = []
+          target_catches = []
+          for path in root.rglob("*.smali"):
+              rel = path.relative_to(root).as_posix()
+              text = path.read_text(encoding="utf-8", errors="replace")
+              for line_no, line in enumerate(text.splitlines(), 1):
+                  m = re.match(r"\\s*\\.catch\\s+(L[^;]+;)\\s+\\{", line)
+                  if not m:
+                      continue
+                  typ = m.group(1)
+                  entry = typ[1:-1] + ".class"
+                  if typ.startswith("Landroid/") and entry not in available:
+                      catches.append(f"{rel}:{line_no}: {typ}")
+                  if rel in ("a2/e.smali", "da/t.smali") or rel.endswith("/a2/e.smali") or rel.endswith("/da/t.smali"):
+                      target_catches.append(f"{rel}:{line_no}: {line.strip()}")
+          out = pathlib.Path("output/api23-catch-handler-diagnostics.txt")
+          with out.open("a", encoding="utf-8") as f:
+              f.write(f"\\n[{dex_name}] framework catch types absent from android-23.jar: {len(catches)}\\n")
+              f.write("\\n".join(catches) + ("\\n" if catches else ""))
+              f.write(f"Catch directives in ART-reported classes (a2.e / da.t): {len(target_catches)}\\n")
+              f.write("\\n".join(target_catches) + ("\\n" if target_catches else ""))
+          print(f"{dex_name}: missing API23 Android catch types={len(catches)}; target class catch directives={len(target_catches)}")
+          PY
 
             python3 - "$dir/smali" "$dex" <<'PY'
           import pathlib, re, sys
@@ -327,6 +362,7 @@ jobs:
             output/apk-badging.txt
             output/compatibility-patches.txt
             output/api24-reference-report.txt
+            output/api23-catch-handler-diagnostics.txt
             output/android6-test-report.txt
             output/android6-original-install.txt
             output/android6-original-launch.txt
