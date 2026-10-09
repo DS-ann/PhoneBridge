@@ -2,6 +2,9 @@ name: Repair AirBeats for Android 6
 
 on:
   workflow_dispatch:
+  push:
+    paths:
+      - '.github/workflows/repair-airbeats-android6.yml'
 
 permissions:
   contents: read
