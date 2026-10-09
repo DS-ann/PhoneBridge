@@ -108,12 +108,16 @@ jobs:
           # Rebuild APK, replacing only DEX entries. All resources and manifest
           # remain byte-for-byte from the original archive.
           python3 - <<'PY'
-          import pathlib, subprocess, zipfile
+          import pathlib, zipfile, re
           src = pathlib.Path('input/AirBeats-original.apk')
           dest = pathlib.Path('work/AirBeats-rebuilt-unsigned.apk')
           dexes = [x.strip() for x in pathlib.Path('work/dex-list.txt').read_text().splitlines() if x.strip()]
           with zipfile.ZipFile(src, 'r') as zin, zipfile.ZipFile(dest, 'w') as zout:
               for item in zin.infolist():
+                  # Drop stale v1 signatures because every DEX is rewritten.
+                  upper = item.filename.upper()
+                  if upper == 'META-INF/MANIFEST.MF' or (upper.startswith('META-INF/') and upper.endswith(('.RSA', '.DSA', '.EC', '.SF'))):
+                      continue
                   if item.filename in dexes:
                       data = pathlib.Path('work', item.filename).read_bytes()
                       zout.writestr(item, data)
