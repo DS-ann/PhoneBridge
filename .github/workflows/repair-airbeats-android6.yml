@@ -286,23 +286,8 @@ jobs:
           adb shell getprop ro.build.version.release >> output/android6-test-report.txt
           adb shell getprop ro.build.version.sdk >> output/android6-test-report.txt
           echo >> output/android6-test-report.txt
-          # Control test the unmodified source APK first. This distinguishes
-          # an original-app/Android-6 ART failure from a regression introduced by
-          # the DEX rebuild. Keep its logs separate from the candidate run.
-          adb logcat -c
-          adb install -r input/AirBeats-original.apk > output/android6-original-install.txt 2>&1
-          original_install_rc=$?
-          cat output/android6-original-install.txt
-          echo "original_install_exit=$original_install_rc" >> output/android6-test-report.txt
-          if [ "$original_install_rc" -eq 0 ]; then
-            adb shell monkey -p com.darkxvenom.airbeats 1 > output/android6-original-launch.txt 2>&1
-            sleep 15
-            adb logcat -d -v threadtime > output/android6-original-logcat.txt
-            adb uninstall com.darkxvenom.airbeats >/dev/null 2>&1
-          else
-            echo "Original APK control could not be installed." >> output/android6-test-report.txt
-            adb logcat -d -v threadtime > output/android6-original-logcat.txt
-          fi
+          # Test only the repaired candidate APK; do not install or launch the source APK.
+          echo "candidate_only=true" >> output/android6-test-report.txt
 
           adb logcat -c
           adb install -r output/AirBeats_v6.2.0_android6_repaired.apk > output/android6-install.txt 2>&1
@@ -367,9 +352,6 @@ jobs:
             output/api24-reference-report.txt
             output/api23-catch-handler-diagnostics.txt
             output/android6-test-report.txt
-            output/android6-original-install.txt
-            output/android6-original-launch.txt
-            output/android6-original-logcat.txt
             output/android6-install.txt
             output/android6-launch.txt
             output/android6-logcat.txt
