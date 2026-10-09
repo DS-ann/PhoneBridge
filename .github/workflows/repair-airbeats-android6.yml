@@ -322,86 +322,41 @@ jobs:
           unzip -p output/AirBeats_v6.2.0_android6_repaired.apk AndroidManifest.xml > output/manifest-binary.xml
           test -s output/manifest-binary.xml
 
-      - name: Prepare Android 6 emulator smoke-test script
-        run: |
-          cat > output/android6-smoke-test.sh <<'BASH'
-          #!/usr/bin/env bash
-          set -u
-          mkdir -p output
-          echo "Android 6 emulator runtime test" > output/android6-test-report.txt
-          adb shell getprop ro.build.version.release >> output/android6-test-report.txt
-          adb shell getprop ro.build.version.sdk >> output/android6-test-report.txt
-          echo >> output/android6-test-report.txt
-          # Run on a native ARM64 GitHub-hosted runner and test both the unmodified
-          # source APK and repaired candidate on an API-23 ARM64 Android image,
-          # matching the target Lenovo PHAB2 Plus architecture.
-          adb shell getprop ro.product.cpu.abi >> output/android6-test-report.txt
-          adb shell getprop dalvik.vm.dex2oat-filter >> output/android6-test-report.txt
-
-          adb logcat -c
-          adb install -r input/AirBeats-original.apk > output/android6-original-install.txt 2>&1
-          original_install_rc=$?
-          cat output/android6-original-install.txt
-          echo "original_install_exit=$original_install_rc" >> output/android6-test-report.txt
-          if [ "$original_install_rc" -eq 0 ]; then
-            adb shell monkey -p com.darkxvenom.airbeats 1 > output/android6-original-launch.txt 2>&1 || true
-            sleep 15
-            adb logcat -d -v threadtime > output/android6-original-logcat.txt
-          else
-            echo "Original APK control could not be installed." >> output/android6-test-report.txt
-            adb logcat -d -v threadtime > output/android6-original-logcat.txt
-          fi
-          adb uninstall com.darkxvenom.airbeats >/dev/null 2>&1 || true
-          adb logcat -c
-          adb install -r output/AirBeats_v6.2.0_android6_repaired.apk > output/android6-install.txt 2>&1
-          install_rc=$?
-          cat output/android6-install.txt
-          if [ "$install_rc" -ne 0 ]; then
-            if grep -q "INSTALL_FAILED_NO_MATCHING_ABIS" output/android6-install.txt; then
-              echo "RESULT=ENVIRONMENT_ABI_MISMATCH: APK has no native ABI compatible with this API 23 x86_64 emulator." | tee -a output/android6-test-report.txt
-            else
-              echo "RESULT=INSTALL_FAILED (exit $install_rc)" | tee -a output/android6-test-report.txt
-            fi
-            exit 1
-          fi
-          echo "Install succeeded." | tee -a output/android6-test-report.txt
-          adb shell monkey -p com.darkxvenom.airbeats 1 > output/android6-launch.txt 2>&1
-          launch_rc=$?
-          cat output/android6-launch.txt
-          echo "monkey_exit=$launch_rc" >> output/android6-test-report.txt
-          sleep 30
-          adb logcat -d -v threadtime > output/android6-logcat.txt
-          # Preserve ART tombstone details if the emulator's native compiler still crashes.
-          adb shell 'for f in /data/tombstones/tombstone_*; do [ -f "$f" ] && echo "===== $f =====" && cat "$f"; done' > output/android6-tombstones.txt 2>&1 || true
-          adb shell dumpsys activity activities > output/android6-activities.txt 2>&1
-          adb shell dumpsys package com.darkxvenom.airbeats > output/android6-package.txt 2>&1
-          if grep -E -i 'FATAL EXCEPTION:.*(com\.darkxvenom\.airbeats|airbeats)|Process: com\.darkxvenom\.airbeats|NoSuchMethodError|NoClassDefFoundError|VerifyError|dex2oat.*(SIGSEGV|fatal)|Fatal signal [0-9]+|Process com\.darkxvenom\.airbeats.*has died|Unable to start activity.*com\.darkxvenom\.airbeats' output/android6-logcat.txt > output/android6-crash-matches.txt; then
-            echo "RESULT=CRASH_SIGNATURE_FOUND" | tee -a output/android6-test-report.txt
-            cat output/android6-crash-matches.txt
-            grep -n -E -B 12 -A 35 'Fatal signal|FATAL EXCEPTION|NoSuchMethodError|NoClassDefFoundError|VerifyError|has died' output/android6-logcat.txt | tail -240 || true
-            exit 1
-          fi
-          if ! grep -q 'com.darkxvenom.airbeats' output/android6-logcat.txt; then
-            echo "RESULT=NO_APP_LOGS_FOUND; launch may not have reached the app." | tee -a output/android6-test-report.txt
-            exit 1
-          fi
-          echo "RESULT=NO_KNOWN_STARTUP_CRASH_SIGNATURE_IN_30_SECONDS" | tee -a output/android6-test-report.txt
-          echo "This is a smoke test, not proof that every app feature works." >> output/android6-test-report.txt
-          BASH
-          chmod +x output/android6-smoke-test.sh
-
-      - name: Run repaired APK on Android 6 (API 23) emulator
+      - name: Validate ARM64 APK without unavailable hosted emulator
         id: android6_test
-        uses: reactivecircus/android-emulator-runner@v2
-        with:
-          api-level: 23
-          target: default
-          arch: arm64-v8a
-          profile: Nexus 5
-          emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim -camera-back none
-          disable-animations: true
-          emulator-boot-timeout: 600
-          script: bash output/android6-smoke-test.sh
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p output
+          APK=output/AirBeats_v6.2.0_android6_repaired.apk
+          test -s "$APK"
+          unzip -t "$APK"
+          apksigner verify --verbose "$APK"
+          python3 - "$APK" <<'PY'
+          import pathlib, sys, zipfile
+          apk = pathlib.Path(sys.argv[1])
+          with zipfile.ZipFile(apk) as z:
+              names = set(z.namelist())
+              dexes = sorted(n for n in names if n == "classes.dex" or (n.startswith("classes") and n.endswith(".dex") and n[7:-4].isdigit()))
+              if not dexes:
+                  raise SystemExit("APK contains no DEX files")
+              for dex in dexes:
+                  data = z.read(dex)
+                  if not data.startswith(b"dex\\n035\\0"):
+                      raise SystemExit(f"{dex} is not DEX 035")
+              native = sorted(n for n in names if n.startswith("lib/arm64-v8a/") and n.endswith(".so"))
+              if not native:
+                  raise SystemExit("APK has no ARM64 native libraries")
+              print("DEX files:", ", ".join(dexes))
+              print("ARM64 native libraries:", len(native))
+          PY
+          {
+            echo "RESULT=APK_BUILD_DEX_AND_SIGNATURE_VALID"
+            echo "Target: Android 6 / API 23 / ARM64"
+            echo "Runtime launch test: NOT RUN"
+            echo "Reason: GitHub-hosted ARM64 runner does not provide a usable Android emulator package; the emulator action failed before device boot."
+            echo "Do not treat static validation as proof that the app launches."
+          } | tee output/android6-test-report.txt
 
       - name: Upload repaired APK and diagnostics
         if: always() && steps.sign.outcome == 'success'
